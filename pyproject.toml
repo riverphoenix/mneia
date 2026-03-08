@@ -44,7 +44,7 @@ google = [
 ]
 atlassian = ["atlassian-python-api>=3.0"]
 notion = ["notion-client>=2.0"]
-audio = ["faster-whisper>=1.0"]
+audio = ["faster-whisper>=1.0", "sounddevice>=0.4"]
 web = ["crawl4ai>=0.4", "playwright>=1.40"]
 vector = ["chromadb>=0.5"]
 mcp = ["mcp>=1.0"]

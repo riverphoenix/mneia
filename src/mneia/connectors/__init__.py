@@ -50,11 +50,13 @@ def _discover_builtins() -> None:
     from mneia.connectors.audio_transcription import AudioTranscriptionConnector
     from mneia.connectors.github import GitHubConnector
     from mneia.connectors.linear import LinearConnector
+    from mneia.connectors.live_audio import LiveAudioConnector
     from mneia.connectors.slack import SlackConnector
     from mneia.connectors.todoist import TodoistConnector
 
     _register(AudioTranscriptionConnector)
     _register(GitHubConnector)
+    _register(LiveAudioConnector)
     _register(LinearConnector)
     _register(SlackConnector)
     _register(TodoistConnector)

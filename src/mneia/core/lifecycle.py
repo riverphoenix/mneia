@@ -165,6 +165,22 @@ class AgentManager:
         )
         logger.info("Started agent: meta")
 
+        if self.config.autonomous_enabled:
+            from mneia.agents.autonomous import AutonomousAgent
+
+            autonomous = AutonomousAgent(
+                name="autonomous",
+                config=self.config,
+                store=store,
+                graph=graph,
+            )
+            self._agents[autonomous.name] = autonomous
+            self._tasks[autonomous.name] = asyncio.create_task(
+                self._run_agent(autonomous),
+                name=autonomous.name,
+            )
+            logger.info("Started agent: autonomous")
+
         if self.config.auto_generate_context:
             from mneia.context.watcher import ContextWatcher
 

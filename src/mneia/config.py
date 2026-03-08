@@ -50,6 +50,10 @@ class MneiaConfig(BaseModel):
     enrichment_scrape_enabled: bool = False
     enrichment_max_scrape_pages: int = 5
     enrichment_scrape_delay_seconds: float = 2.0
+    autonomous_enabled: bool = True
+    autonomous_interval_minutes: int = 30
+    autonomous_max_actions: int = 5
+    autonomous_creativity_temperature: float = 0.7
     max_memory_mb: int = 2048
     log_level: str = "info"
 

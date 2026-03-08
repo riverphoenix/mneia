@@ -949,6 +949,27 @@ def permission_list() -> None:
     console.print(table)
 
 
+# --- MCP commands ---
+
+mcp_app = typer.Typer(help="MCP server for AI tool integration")
+app.add_typer(mcp_app, name="mcp")
+
+
+@mcp_app.command("serve")
+def mcp_serve() -> None:
+    """Start the MCP server (stdio transport for Claude Code integration)."""
+    try:
+        from mneia.mcp.server import run_server
+    except ImportError:
+        console.print(
+            "[red]MCP package not installed. "
+            "Install with: pip install 'mneia[mcp]'[/red]"
+        )
+        raise typer.Exit(1)
+
+    run_server()
+
+
 # --- Marketplace commands ---
 
 marketplace_app = typer.Typer(help="Browse and install connectors")

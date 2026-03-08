@@ -191,6 +191,56 @@ class AgentManager:
                         "docs": agent._state == AgentState.RUNNING,
                     })
                 response = {"running": True, "agents": agents_info}
+            elif action == "stop_agent":
+                agent_name = command.get("name", "")
+                if agent_name in self._agents:
+                    await self._agents[agent_name].stop()
+                    if agent_name in self._tasks:
+                        self._tasks[agent_name].cancel()
+                    logger.info(f"Stopped agent: {agent_name}")
+                    response = {"ok": True, "stopped": agent_name}
+                else:
+                    response = {"error": f"Agent not found: {agent_name}"}
+            elif action == "start_agent":
+                agent_name = command.get("name", "")
+                connector_name = agent_name.replace("listener-", "")
+                if agent_name in self._agents and self._agents[agent_name].state != AgentState.STOPPED:
+                    response = {"error": f"Agent already running: {agent_name}"}
+                else:
+                    from mneia.agents.listener import ListenerAgent
+                    from mneia.connectors import create_connector
+
+                    conn_config = self.config.connectors.get(connector_name)
+                    if not conn_config or not conn_config.enabled:
+                        response = {"error": f"Connector not enabled: {connector_name}"}
+                    else:
+                        connector = create_connector(connector_name)
+                        if not connector:
+                            response = {"error": f"Unknown connector: {connector_name}"}
+                        else:
+                            authenticated = await connector.authenticate(conn_config.settings)
+                            if not authenticated:
+                                response = {"error": f"Auth failed: {connector_name}"}
+                            else:
+                                agent = ListenerAgent(
+                                    name=f"listener-{connector_name}",
+                                    connector=connector,
+                                    config=self.config,
+                                    connector_config=conn_config,
+                                )
+                                self._agents[agent.name] = agent
+                                self._tasks[agent.name] = asyncio.create_task(
+                                    self._run_agent(agent), name=agent.name,
+                                )
+                                logger.info(f"Started agent: {agent.name}")
+                                response = {"ok": True, "started": agent.name}
+            elif action == "list_agents":
+                response = {
+                    "agents": [
+                        {"name": n, "state": a.state.value}
+                        for n, a in self._agents.items()
+                    ]
+                }
             else:
                 response = {"error": f"Unknown action: {action}"}
 

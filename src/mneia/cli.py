@@ -360,6 +360,60 @@ def connector_sync(name: str) -> None:
         config.save()
 
 
+@connector_app.command("start-agent")
+def connector_start_agent(name: str) -> None:
+    """Start a connector's listener agent (daemon must be running)."""
+    from mneia.core.lifecycle import send_command
+
+    agent_name = f"listener-{name}" if not name.startswith("listener-") else name
+    try:
+        result = asyncio.run(send_command("start_agent", name=agent_name))
+        if result.get("ok"):
+            console.print(f"[green]Started agent: {result['started']}[/green]")
+        elif result.get("error"):
+            console.print(f"[red]{result['error']}[/red]")
+    except (ConnectionRefusedError, FileNotFoundError, OSError):
+        console.print("[red]Daemon is not running. Start with: mneia start[/red]")
+
+
+@connector_app.command("stop-agent")
+def connector_stop_agent(name: str) -> None:
+    """Stop a connector's listener agent."""
+    from mneia.core.lifecycle import send_command
+
+    agent_name = f"listener-{name}" if not name.startswith("listener-") else name
+    try:
+        result = asyncio.run(send_command("stop_agent", name=agent_name))
+        if result.get("ok"):
+            console.print(f"[yellow]Stopped agent: {result['stopped']}[/yellow]")
+        elif result.get("error"):
+            console.print(f"[red]{result['error']}[/red]")
+    except (ConnectionRefusedError, FileNotFoundError, OSError):
+        console.print("[red]Daemon is not running.[/red]")
+
+
+@connector_app.command("agents")
+def connector_agents() -> None:
+    """List running connector agents."""
+    from mneia.core.lifecycle import send_command
+
+    try:
+        result = asyncio.run(send_command("list_agents"))
+        agents = result.get("agents", [])
+        if not agents:
+            console.print("[dim]No agents running.[/dim]")
+            return
+
+        table = Table(title="Running Agents")
+        table.add_column("Name", style="cyan")
+        table.add_column("State", style="green")
+        for a in agents:
+            table.add_row(a["name"], a["state"])
+        console.print(table)
+    except (ConnectionRefusedError, FileNotFoundError, OSError):
+        console.print("[red]Daemon is not running.[/red]")
+
+
 # --- Memory commands ---
 
 memory_app = typer.Typer(help="Browse and search your knowledge")

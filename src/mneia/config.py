@@ -46,6 +46,7 @@ class MneiaConfig(BaseModel):
     context_output_dir: str = str(CONTEXT_DIR)
     auto_generate_context: bool = True
     context_regenerate_interval_minutes: int = 30
+    context_min_changes_for_regen: int = 5
     enrichment_scrape_enabled: bool = False
     enrichment_max_scrape_pages: int = 5
     enrichment_scrape_delay_seconds: float = 2.0

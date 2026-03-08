@@ -165,6 +165,16 @@ class AgentManager:
         )
         logger.info("Started agent: meta")
 
+        if self.config.auto_generate_context:
+            from mneia.context.watcher import ContextWatcher
+
+            ctx_watcher = ContextWatcher(self.config)
+            self._tasks["context-watcher"] = asyncio.create_task(
+                ctx_watcher.run(),
+                name="context-watcher",
+            )
+            logger.info("Started context auto-regeneration watcher")
+
     async def _run_agent(self, agent: BaseAgent) -> None:
         try:
             await agent.run()
@@ -222,7 +232,11 @@ class AgentManager:
             elif action == "start_agent":
                 agent_name = command.get("name", "")
                 connector_name = agent_name.replace("listener-", "")
-                if agent_name in self._agents and self._agents[agent_name].state != AgentState.STOPPED:
+                already_running = (
+                    agent_name in self._agents
+                    and self._agents[agent_name].state != AgentState.STOPPED
+                )
+                if already_running:
                     response = {"error": f"Agent already running: {agent_name}"}
                 else:
                     from mneia.agents.listener import ListenerAgent

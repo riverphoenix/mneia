@@ -52,12 +52,19 @@ class ChromeHistoryConnector(BaseConnector):
         scopes=["read"],
         poll_interval_seconds=600,
         required_config=[],
-        optional_config=["history_path", "max_results"],
+        optional_config=[
+            "history_path", "max_results",
+            "scrape_content", "scrape_max_pages",
+            "scrape_domains_exclude",
+        ],
     )
 
     def __init__(self) -> None:
         self._history_path: Path | None = None
         self._max_results: int = 200
+        self._scrape_content: bool = False
+        self._scrape_max_pages: int = 20
+        self._scrape_domains_exclude: set[str] = set()
 
     async def authenticate(self, config: dict[str, Any]) -> bool:
         path_str = config.get("history_path", "")
@@ -73,6 +80,26 @@ class ChromeHistoryConnector(BaseConnector):
         max_r = config.get("max_results", "")
         if max_r:
             self._max_results = int(max_r)
+
+        scrape = config.get("scrape_content", "")
+        if isinstance(scrape, bool):
+            self._scrape_content = scrape
+        elif isinstance(scrape, str) and scrape:
+            self._scrape_content = scrape.lower() in (
+                "true", "1", "yes",
+            )
+
+        max_pages = config.get("scrape_max_pages", "")
+        if max_pages:
+            self._scrape_max_pages = int(max_pages)
+
+        exclude = config.get("scrape_domains_exclude", "")
+        if exclude:
+            self._scrape_domains_exclude = {
+                d.strip()
+                for d in exclude.split(",")
+                if d.strip()
+            }
 
         return True
 
@@ -112,10 +139,23 @@ class ChromeHistoryConnector(BaseConnector):
             rows = cursor.fetchall()
             conn.close()
 
+            scraped_count = 0
             for row in rows:
                 doc = self._row_to_document(row)
                 if doc:
                     yield doc
+
+                    if (
+                        self._scrape_content
+                        and doc.url
+                        and scraped_count < self._scrape_max_pages
+                        and not self._is_excluded_domain(doc.url)
+                        and not doc.metadata.get("content_scraped")
+                    ):
+                        scraped = await self._scrape_page(doc)
+                        if scraped:
+                            scraped_count += 1
+                            yield scraped
         except Exception as e:
             logger.error(f"Chrome history read failed: {e}")
         finally:
@@ -141,6 +181,56 @@ class ChromeHistoryConnector(BaseConnector):
 
         path = typer.prompt("  Path to Chrome History file")
         return {"history_path": path}
+
+    def _is_excluded_domain(self, url: str) -> bool:
+        from urllib.parse import urlparse
+
+        try:
+            domain = urlparse(url).netloc.lower()
+        except Exception:
+            return True
+        if not domain:
+            return True
+        for excluded in self._scrape_domains_exclude:
+            if excluded in domain:
+                return True
+        internal_prefixes = (
+            "chrome://", "chrome-extension://",
+            "about:", "file://",
+        )
+        if any(url.startswith(p) for p in internal_prefixes):
+            return True
+        return False
+
+    async def _scrape_page(
+        self, doc: RawDocument,
+    ) -> RawDocument | None:
+        if not doc.url:
+            return None
+        try:
+            from mneia.connectors.web_scraper import scrape_url
+
+            content = await scrape_url(doc.url)
+            if not content or len(content) < 50:
+                return None
+
+            return RawDocument(
+                source="chrome-history",
+                source_id=f"scraped-{doc.source_id}",
+                content=content,
+                content_type="webpage",
+                title=f"{doc.title} (content)",
+                timestamp=doc.timestamp,
+                url=doc.url,
+                metadata={
+                    **doc.metadata,
+                    "content_scraped": True,
+                    "original_source_id": doc.source_id,
+                },
+            )
+        except Exception as e:
+            logger.debug(f"Scrape failed for {doc.url}: {e}")
+            return None
 
     @staticmethod
     def _row_to_document(row: sqlite3.Row) -> RawDocument | None:

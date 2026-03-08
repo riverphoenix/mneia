@@ -1,4 +1,10 @@
-# mneia
+```
+                         _
+  _ __ ___  _ __   ___  (_) __ _
+ | '_ ` _ \| '_ \ / _ \ | |/ _` |
+ | | | | | | | | |  __/ | | (_| |
+ |_| |_| |_|_| |_|\___| |_|\__,_|
+```
 
 > *mneia (μνεία)* — Greek for "memory, reference"
 
@@ -6,10 +12,12 @@ Autonomous multi-agent personal knowledge system. mneia connects to your apps (r
 
 ## What it does
 
-- **Connects** to your apps (Calendar, Email, Notes, Tasks, Documents) — read-only, always
+- **Connects** to 18 data sources (Calendar, Slack, GitHub, Notes, Chrome, Audio, and more) — read-only, always
 - **Learns** by extracting entities, relationships, and patterns from your data via LLM
-- **Remembers** everything locally in a knowledge graph — nothing leaves your machine
+- **Remembers** everything locally in a knowledge graph with vector embeddings — nothing leaves your machine
+- **Thinks** autonomously — identifies gaps, proposes connections, and surfaces insights
 - **Generates** `.md` context files for Claude Code, Cursor, and other AI tools
+- **Serves** as an MCP server so AI tools can query your knowledge directly
 - **Converses** with you about your knowledge through a CLI/interactive interface
 
 ## Quick Start
@@ -46,7 +54,24 @@ mneia › /stats             # View memory statistics
 mneia › What did I discuss with Alice last week?  # Natural language query
 ```
 
-The interactive mode supports slash commands, natural language intent detection, and LLM-powered conversational queries with automatic command routing.
+The interactive mode supports slash commands, natural language intent detection, and LLM-powered conversational queries with automatic command routing. Cross-session memory means mneia learns your preferences over time.
+
+## MCP Server
+
+mneia exposes an MCP server for AI tool integration. Add it to your Claude Code config:
+
+```json
+{
+  "mcpServers": {
+    "mneia": {
+      "command": "mneia",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+Available MCP tools: `mneia_search`, `mneia_ask`, `mneia_list_connectors`, `mneia_connector_status`, `mneia_sync`, `mneia_graph_query`, `mneia_memory_stats`, `mneia_marketplace_search`.
 
 ## CLI Commands
 
@@ -84,7 +109,7 @@ mneia connector agents                # List running connector agents
 
 ```bash
 mneia memory stats                    # Show ingestion statistics
-mneia memory search <query>           # Full-text search across all knowledge
+mneia memory search <query>           # Full-text + vector search across all knowledge
 mneia memory recent                   # Show recently ingested items
 mneia memory purge [--source <name>]  # Clear stored memory
 ```
@@ -120,11 +145,25 @@ mneia ask <question> [--source <name>]  # Single query with RAG
 mneia chat                              # Multi-turn conversation mode
 ```
 
+### Permissions
+
+```bash
+mneia permission list                 # List granted permissions
+mneia permission grant <operation>    # Pre-approve an operation
+mneia permission revoke <operation>   # Revoke a permission
+```
+
 ### Agent Dashboard & Logs
 
 ```bash
 mneia agents                          # Interactive TUI dashboard (Textual)
 mneia logs [--level info] [--follow]  # Tail daemon logs
+```
+
+### MCP Server
+
+```bash
+mneia mcp serve                       # Start MCP server (stdio transport)
 ```
 
 ### Marketplace
@@ -175,51 +214,89 @@ Natural language is also supported — the LLM detects intent and can automatica
 
 ## Built-in Connectors
 
-| Connector | Source | Auth | Status |
-|-----------|--------|------|--------|
-| Obsidian | Markdown vault | Local files | Available |
-| Google Calendar | Calendar events | OAuth2 (readonly) | Available |
-| Gmail | Email messages | OAuth2 (readonly) | Available |
-| Google Drive | Files, Docs, Sheets, Slides | OAuth2 (readonly) | Available |
-| Apple Notes | macOS Notes app | AppleScript | Available |
-| Asana | Projects & tasks | API token | Available |
-| JIRA | Tickets | API token | Available |
-| Confluence | Wiki pages | API token | Available |
-| Notion | Pages & databases | Bearer token | Available |
-| Zoom | Meeting recordings & transcripts | OAuth2 (S2S) | Available |
-| Chrome History | Browser history | Local SQLite | Available |
-| Audio Transcription | Audio files | Local (whisper) | Available |
+| Connector | Source | Auth | Mode |
+|-----------|--------|------|------|
+| Obsidian | Markdown vault | Local files | Watch |
+| Google Calendar | Calendar events | OAuth2 (readonly) | Poll |
+| Gmail | Email messages | OAuth2 (readonly) | Poll |
+| Google Drive | Files, Docs, Sheets, Slides | OAuth2 (readonly) | Poll |
+| Apple Notes | macOS Notes app | AppleScript | Poll |
+| Asana | Projects & tasks | API token | Poll |
+| JIRA | Tickets | API token | Poll |
+| Confluence | Wiki pages | API token | Poll |
+| Notion | Pages & databases | Bearer token | Poll |
+| Zoom | Meeting recordings & transcripts | OAuth2 (S2S) | Poll |
+| Chrome History | Browser history + page content | Local SQLite | Poll |
+| Audio Transcription | Audio files (WAV, MP3, M4A) | Local (whisper) | Poll |
+| Live Audio | Real-time meeting capture | Sounddevice | Watch |
+| Slack | Channel messages | Bot token | Poll |
+| GitHub | Issues & pull requests | PAT | Poll |
+| Linear | Issues & projects | API key | Poll |
+| Todoist | Tasks & projects | API token | Poll |
 
 ## Architecture
 
 ```
-CLI / Interactive REPL
+CLI / Interactive REPL ──── MCP Server (stdio)
         |
    Unix Socket IPC
         |
   AgentManager (daemon)
-   /    |    \
-Listener  Worker   Meta
-Agents    Agent    Agent
-  |         |
-Connectors  Pipeline: Extract → Associate → Summarize → Generate
-  |                                                        |
-MemoryStore (SQLite + FTS5)                     .md Context Files
-KnowledgeGraph (NetworkX + SQLite)              (~/.mneia/context/)
+   /    |    \      \         \
+Listener Worker Meta Enrichment Autonomous
+Agents   Agent  Agent  Agent     Agent
+  |        |                       |
+Connectors Pipeline               ReasoningEngine
+  |        Extract → Associate     (LLM gap analysis)
+  |        → Summarize → Generate
+  |                        |
+MemoryStore (SQLite+FTS5)  .md Context Files
+VectorStore (ChromaDB)     (~/.mneia/context/)
+KnowledgeGraph (NetworkX)
+PersistentMemory (cross-session)
 ```
 
 **Agent Types:**
-- **ListenerAgent** — one per connector, polls/watches data sources
-- **WorkerAgent** — entity extraction, association building
+- **ListenerAgent** — one per connector, polls or watches data sources in real-time
+- **WorkerAgent** — entity extraction, association building, vector embedding
 - **MetaAgent** — orchestrator, health monitoring, entity deduplication
+- **EnrichmentAgent** — web research to enrich sparse entities
+- **WebResearchAgent** — deep topic research with scraping and LLM synthesis
+- **AutonomousAgent** — identifies knowledge gaps, proposes connections, generates insights
 
 ## Memory Pipeline
 
-1. **Ingest** — Connectors fetch raw documents, normalize and store in SQLite with FTS5
+1. **Ingest** — Connectors fetch raw documents, normalize and store in SQLite with FTS5 + ChromaDB vectors
 2. **Extract** — LLM extracts entities (people, projects, topics, decisions) and relationships
 3. **Associate** — Cross-reference entities, merge duplicates, build graph edges
 4. **Summarize** — Generate rolling summaries per person, topic, and time period
-5. **Generate** — Render Jinja2 templates into `.md` context files
+5. **Generate** — Render Jinja2 templates into `.md` context files (auto-regenerated on changes)
+
+## Search
+
+mneia uses hybrid search combining:
+- **Full-text search** (SQLite FTS5) for keyword matching
+- **Vector search** (ChromaDB + nomic-embed-text) for semantic similarity
+- **Knowledge graph** traversal for entity context
+
+Results are merged and deduplicated for optimal relevance.
+
+## Safety
+
+Operations are classified by risk level:
+- **LOW** — auto-approved (searches, reads)
+- **MEDIUM** — requires user consent (web scraping, sync)
+- **HIGH** — requires explicit approval (live audio capture)
+- **CRITICAL** — always prompts (data purge)
+
+Pre-approve operations with `mneia permission grant <operation>`.
+
+## Resilience
+
+- **Retry with backoff** — API calls retry automatically on transient failures
+- **Circuit breaker** — LLM client pauses after repeated failures, auto-resets
+- **Agent auto-restart** — crashed agents restart with exponential backoff (max 3 retries)
+- **In-process metrics** — counters, gauges, and timers for observability
 
 ## Core Principles
 
@@ -257,9 +334,7 @@ pytest tests/integration/       # CLI integration tests
 pytest -v                       # All tests with verbose output
 ```
 
-## Documentation
-
-See the [docs/](docs/) folder for detailed feature documentation.
+439 tests covering all agents, connectors, pipeline stages, and core infrastructure.
 
 ## License
 

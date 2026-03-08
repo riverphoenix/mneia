@@ -107,7 +107,7 @@ def test_slash_commands_complete():
         "/connectors", "/sync", "/connector-start", "/connector-stop",
         "/agents", "/extract", "/graph", "/graph-entities", "/graph-person",
         "/graph-topic", "/context", "/config", "/start", "/stop", "/logs",
-        "/clear", "/exit",
+        "/chat", "/clear", "/exit",
     ]
     for cmd in expected:
         assert cmd in SLASH_COMMANDS, f"Missing command: {cmd}"

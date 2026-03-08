@@ -53,6 +53,7 @@ SLASH_COMMANDS: dict[str, dict[str, str]] = {
     "/start": {"desc": "Start the daemon (background)", "alias": ""},
     "/stop": {"desc": "Stop the daemon", "alias": ""},
     "/logs": {"desc": "Show recent daemon logs — /logs [level]", "alias": ""},
+    "/chat": {"desc": "Enter multi-turn chat mode", "alias": ""},
     "/clear": {"desc": "Clear the screen", "alias": ""},
     "/exit": {"desc": "Exit mneia", "alias": "/quit"},
 }
@@ -79,8 +80,9 @@ class InteractiveSession:
         self.config = MneiaConfig.load()
         self._ollama_available: bool | None = None
         self._history_file = MNEIA_DIR / "history.txt"
+        self._conversation_engine: Any = None
         self._completer = WordCompleter(
-            list(SLASH_COMMANDS.keys()) + ["/quit"],
+            list(SLASH_COMMANDS.keys()) + ["/quit", "/chat"],
             sentence=True,
         )
 
@@ -290,6 +292,9 @@ class InteractiveSession:
 
         elif cmd == "/logs":
             self._cmd_logs(args if args else "info")
+
+        elif cmd == "/chat":
+            self._cmd_chat()
 
         else:
             console.print(f"[yellow]Unknown command: {cmd}[/yellow]")
@@ -676,6 +681,56 @@ class InteractiveSession:
             console.print(f"[red]Error: {e}[/red]")
         finally:
             asyncio.run(llm.close())
+
+    def _cmd_chat(self) -> None:
+        if not self._ollama_available:
+            console.print("[yellow]LLM not available. Start Ollama or configure an API key.[/yellow]")
+            return
+
+        from mneia.conversation import ConversationEngine
+
+        engine = ConversationEngine(self.config)
+        console.print("[cyan]Chat mode. Type 'exit' to return. History preserved across turns.[/cyan]\n")
+
+        try:
+            while True:
+                try:
+                    question = input("  you › ").strip()
+                    if not question:
+                        continue
+                    if question.lower() in ("exit", "quit", "/exit"):
+                        break
+                    if question.lower() == "clear":
+                        engine.clear_history()
+                        console.print("[dim]  Conversation cleared.[/dim]\n")
+                        continue
+
+                    with console.status("[dim italic]Thinking...[/dim italic]", spinner="dots"):
+                        result = asyncio.run(engine.ask(question))
+
+                    console.print()
+                    md = Markdown(result.answer)
+                    console.print(Panel(md, border_style="cyan", padding=(1, 2)))
+
+                    if result.citations:
+                        console.print("[dim]  Sources:[/dim]")
+                        for cite in result.citations:
+                            console.print(f"    [dim]- {cite.title} ({cite.source})[/dim]")
+
+                    if result.suggested_followups:
+                        console.print("\n[dim]  You could also ask:[/dim]")
+                        for q in result.suggested_followups:
+                            console.print(f"    [cyan]- {q}[/cyan]")
+                    console.print()
+
+                except KeyboardInterrupt:
+                    console.print()
+                    continue
+                except EOFError:
+                    break
+        finally:
+            asyncio.run(engine.close())
+            console.print("[dim]  Back to mneia.[/dim]\n")
 
     def _cmd_logs(self, level: str = "info") -> None:
         from mneia.config import LOGS_DIR

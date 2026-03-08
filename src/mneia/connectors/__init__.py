@@ -23,9 +23,13 @@ def _discover_builtins() -> None:
 
     _register(ObsidianConnector)
 
-    # Future built-in connectors registered here as they are implemented:
-    # from mneia.connectors.google_calendar import GoogleCalendarConnector
-    # _register(GoogleCalendarConnector)
+    from mneia.connectors.google_calendar import GoogleCalendarConnector
+    from mneia.connectors.google_drive import GoogleDriveConnector
+    from mneia.connectors.google_gmail import GmailConnector
+
+    _register(GoogleCalendarConnector)
+    _register(GmailConnector)
+    _register(GoogleDriveConnector)
 
 
 def _discover_third_party() -> None:

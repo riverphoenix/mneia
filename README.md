@@ -116,7 +116,8 @@ mneia context link <target-dir>       # Symlink context to a project directory
 ### Conversational Query
 
 ```bash
-mneia ask <question> [--source <name>]  # Ask a question with RAG
+mneia ask <question> [--source <name>]  # Single query with RAG
+mneia chat                              # Multi-turn conversation mode
 ```
 
 ### Agent Dashboard & Logs
@@ -159,6 +160,7 @@ All CLI commands are also available as slash commands in interactive mode:
 | `/config` | Show configuration |
 | `/start` | Start daemon in background |
 | `/stop` | Stop the daemon |
+| `/chat` | Enter multi-turn chat mode |
 | `/logs [level]` | Show daemon logs |
 
 Natural language is also supported — the LLM detects intent and can automatically route to the appropriate command.
@@ -168,10 +170,10 @@ Natural language is also supported — the LLM detects intent and can automatica
 | Connector | Source | Auth | Status |
 |-----------|--------|------|--------|
 | Obsidian | Markdown vault | Local files | Available |
+| Google Calendar | Calendar events | OAuth2 (readonly) | Available |
+| Gmail | Email messages | OAuth2 (readonly) | Available |
+| Google Drive | Files, Docs, Sheets, Slides | OAuth2 (readonly) | Available |
 | Apple Notes | macOS Notes app | AppleScript | Planned |
-| Google Calendar | Calendar events | OAuth2 (readonly) | Planned |
-| Gmail | Email messages | OAuth2 (readonly) | Planned |
-| Google Drive | Files & Docs | OAuth2 (readonly) | Planned |
 | Asana | Projects & tasks | API token | Planned |
 | JIRA | Tickets | API token | Planned |
 | Confluence | Wiki pages | API token | Planned |

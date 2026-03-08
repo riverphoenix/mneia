@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from mneia import __version__
-from mneia.config import MneiaConfig, ensure_dirs
+from mneia.config import MNEIA_DIR, MneiaConfig, ensure_dirs
 
 app = typer.Typer(
     name="mneia",
@@ -651,46 +651,98 @@ def ask(
     question: str,
     source: Optional[str] = typer.Option(None, "--source", "-s", help="Limit to source"),
 ) -> None:
-    """Ask a question about your knowledge."""
-    from mneia.core.llm import LLMClient
-    from mneia.memory.store import MemoryStore
+    """Ask a question about your knowledge (single query with RAG)."""
+    from mneia.conversation import ConversationEngine
 
     config = MneiaConfig.load()
-    store = MemoryStore()
-    llm = LLMClient(config.llm)
-
-    results = asyncio.run(store.search(question, limit=5))
-
-    context_parts = []
-    for doc in results:
-        context_parts.append(f"[{doc.title} — {doc.source}]\n{doc.content[:1500]}")
-
-    context_block = "\n\n---\n\n".join(context_parts) if context_parts else "No relevant documents found."
-
-    system = (
-        "You are mneia, a personal knowledge assistant. "
-        "Answer based on the provided context from the user's documents. "
-        "Be concise, direct, and helpful. Reference specific documents when possible."
-    )
-    prompt = f"Context:\n\n{context_block}\n\nQuestion: {question}"
+    engine = ConversationEngine(config)
 
     try:
-        response = asyncio.run(llm.generate(prompt, system=system))
+        result = asyncio.run(engine.ask(question, source_filter=source))
         from rich.markdown import Markdown
 
         console.print()
-        console.print(Markdown(response))
+        console.print(Markdown(result.answer))
         console.print()
 
-        if results:
+        if result.citations:
             console.print("[dim]Sources:[/dim]")
-            for doc in results:
-                console.print(f"  [dim]• {doc.title} ({doc.source})[/dim]")
+            for cite in result.citations:
+                console.print(f"  [dim]- {cite.title} ({cite.source})[/dim]")
+
+        if result.suggested_followups:
+            console.print("\n[dim]Follow-up questions:[/dim]")
+            for q in result.suggested_followups:
+                console.print(f"  [cyan]- {q}[/cyan]")
+        console.print()
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         console.print("[dim]Ensure Ollama is running or an API key is configured.[/dim]")
     finally:
-        asyncio.run(llm.close())
+        asyncio.run(engine.close())
+
+
+@app.command()
+def chat() -> None:
+    """Interactive multi-turn conversation about your knowledge."""
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.formatted_text import HTML
+    from prompt_toolkit.history import FileHistory
+    from rich.markdown import Markdown
+
+    from mneia.conversation import ConversationEngine
+
+    config = MneiaConfig.load()
+    engine = ConversationEngine(config)
+
+    console.print("[cyan]Entering chat mode. Type 'exit' or Ctrl+D to leave.[/cyan]")
+    console.print("[dim]Your conversation history is preserved across questions.[/dim]\n")
+
+    session: PromptSession[str] = PromptSession(
+        history=FileHistory(str(MNEIA_DIR / "chat_history.txt")),
+    )
+
+    try:
+        while True:
+            try:
+                question = session.prompt(
+                    HTML("<ansibrightcyan><b>you</b></ansibrightcyan> <ansigray>›</ansigray> "),
+                )
+                question = question.strip()
+                if not question:
+                    continue
+                if question.lower() in ("exit", "quit", "/exit", "/quit"):
+                    break
+                if question.lower() in ("clear", "/clear"):
+                    engine.clear_history()
+                    console.print("[dim]Conversation cleared.[/dim]\n")
+                    continue
+
+                with console.status("[dim italic]Thinking...[/dim italic]", spinner="dots"):
+                    result = asyncio.run(engine.ask(question))
+
+                console.print()
+                console.print(Markdown(result.answer))
+
+                if result.citations:
+                    console.print("\n[dim]Sources:[/dim]")
+                    for cite in result.citations:
+                        console.print(f"  [dim]- {cite.title} ({cite.source})[/dim]")
+
+                if result.suggested_followups:
+                    console.print("\n[dim]You could also ask:[/dim]")
+                    for q in result.suggested_followups:
+                        console.print(f"  [cyan]- {q}[/cyan]")
+                console.print()
+
+            except KeyboardInterrupt:
+                console.print()
+                continue
+            except EOFError:
+                break
+    finally:
+        asyncio.run(engine.close())
+        console.print("\n[dim]Chat ended.[/dim]")
 
 
 # --- Graph commands ---

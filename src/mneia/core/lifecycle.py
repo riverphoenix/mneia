@@ -39,6 +39,31 @@ class AgentManager:
 
         await self._start_agents()
 
+        from rich.console import Console
+
+        console = Console()
+
+        if self._agents:
+            console.print(f"[green]Daemon running with {len(self._agents)} agent(s):[/green]")
+            for name in self._agents:
+                console.print(f"  [cyan]{name}[/cyan]")
+        else:
+            enabled = [
+                n for n, c in self.config.connectors.items() if c.enabled
+            ]
+            if not enabled:
+                console.print(
+                    "[yellow]No connectors enabled. "
+                    "Run [cyan]mneia connector enable <name>[/cyan] first.[/yellow]"
+                )
+            else:
+                console.print(
+                    "[yellow]No agents started. Check connector configuration "
+                    "with [cyan]mneia connector list[/cyan][/yellow]"
+                )
+
+        console.print("[dim]Listening on socket. Press Ctrl+C to stop.[/dim]\n")
+
         logger.info("mneia daemon started")
         try:
             while self._running:

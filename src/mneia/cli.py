@@ -82,7 +82,7 @@ def stop() -> None:
     try:
         asyncio.run(send_command("stop"))
         console.print("[green]mneia stopped.[/green]")
-    except ConnectionRefusedError:
+    except (ConnectionRefusedError, FileNotFoundError, OSError):
         console.print("[red]mneia is not running.[/red]")
 
 
@@ -104,7 +104,7 @@ def status() -> None:
             console.print(table)
         else:
             console.print("[yellow]mneia is not running.[/yellow]")
-    except (ConnectionRefusedError, FileNotFoundError):
+    except (ConnectionRefusedError, FileNotFoundError, OSError):
         console.print("[yellow]mneia is not running.[/yellow]")
 
 

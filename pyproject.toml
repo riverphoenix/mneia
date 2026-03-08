@@ -32,6 +32,7 @@ dependencies = [
     "jinja2>=3.1",
     "aiosqlite>=0.20",
     "watchfiles>=0.21",
+    "prompt_toolkit>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -60,7 +61,7 @@ Repository = "https://github.com/riverphoenix/mneia"
 Issues = "https://github.com/riverphoenix/mneia/issues"
 
 [project.scripts]
-mneia = "mneia.cli:app"
+mneia = "mneia.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mneia"]

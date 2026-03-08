@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -16,7 +17,8 @@ from mneia.config import MneiaConfig, ensure_dirs
 app = typer.Typer(
     name="mneia",
     help="Autonomous multi-agent personal knowledge system",
-    no_args_is_help=True,
+    no_args_is_help=False,
+    invoke_without_command=True,
     rich_markup_mode="rich",
 )
 console = Console()
@@ -36,6 +38,22 @@ def _print_banner() -> None:
     console.print(f"  v{__version__} — your personal knowledge agent\n", style="dim")
 
 
+# --- Main callback: no args = interactive mode ---
+
+
+@app.callback(invoke_without_command=True)
+def main_callback(ctx: typer.Context) -> None:
+    """Autonomous multi-agent personal knowledge system.
+
+    Run with no arguments to enter interactive mode.
+    Run with a command (e.g. mneia start) for direct execution.
+    """
+    if ctx.invoked_subcommand is None:
+        from mneia.interactive import run_interactive
+
+        run_interactive()
+
+
 # --- Top-level commands ---
 
 
@@ -53,20 +71,61 @@ def start(
     ),
 ) -> None:
     """Start the mneia knowledge daemon."""
-    ensure_dirs()
-    _print_banner()
-    config = MneiaConfig.load()
+    import subprocess
+    import time
 
+    ensure_dirs()
+    config = MneiaConfig.load()
     connector_filter = connectors.split(",") if connectors else None
 
+    if detach:
+        from mneia.config import MNEIA_DIR, SOCKET_PATH
+
+        if SOCKET_PATH.exists():
+            console.print("[yellow]Daemon already running.[/yellow]")
+            return
+
+        python = sys.executable
+        filter_arg = ""
+        if connector_filter:
+            filter_arg = f", connector_filter={connector_filter!r}"
+        cmd = [
+            python, "-c",
+            "import asyncio; from mneia.config import MneiaConfig; "
+            "from mneia.core.lifecycle import AgentManager; "
+            "config = MneiaConfig.load(); "
+            f"manager = AgentManager(config{filter_arg}); "
+            "asyncio.run(manager.run())"
+        ]
+
+        log_path = MNEIA_DIR / "logs" / "daemon.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file = open(str(log_path), "a")
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_file,
+            stderr=log_file,
+            start_new_session=True,
+        )
+
+        time.sleep(1.5)
+
+        if SOCKET_PATH.exists():
+            console.print(f"[green]● Daemon started in background[/green] [dim](PID {proc.pid})[/dim]")
+            console.print(f"  [dim]Logs: {log_path}[/dim]")
+            console.print(f"  [dim]Stop with: [cyan]mneia stop[/cyan][/dim]")
+        else:
+            console.print("[yellow]Daemon starting... check [cyan]mneia status[/cyan] in a moment.[/yellow]")
+        return
+
+    _print_banner()
     from mneia.core.lifecycle import AgentManager
 
     manager = AgentManager(config, connector_filter=connector_filter)
 
-    if detach:
-        console.print("[yellow]Background mode not yet implemented. Running in foreground.[/yellow]")
-
     console.print("[green]Starting mneia...[/green]")
+    console.print("[dim]Press Ctrl+C to stop  |  Run with -d to detach[/dim]\n")
     try:
         asyncio.run(manager.run())
     except KeyboardInterrupt:
@@ -206,8 +265,8 @@ def connector_list() -> None:
 
     for manifest in available:
         conn_config = config.connectors.get(manifest.name)
-        status = "[green]enabled[/green]" if conn_config and conn_config.enabled else "[dim]disabled[/dim]"
-        table.add_row(manifest.name, manifest.display_name, status, manifest.auth_type)
+        status_text = "[green]enabled[/green]" if conn_config and conn_config.enabled else "[dim]disabled[/dim]"
+        table.add_row(manifest.name, manifest.display_name, status_text, manifest.auth_type)
 
     console.print(table)
 
@@ -550,3 +609,10 @@ def update() -> None:
             console.print("[yellow]Could not check for updates.[/yellow]")
     except Exception:
         console.print("[yellow]Could not reach GitHub. Check your connection.[/yellow]")
+
+
+# --- Entry point ---
+
+
+def main() -> None:
+    app()

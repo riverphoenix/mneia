@@ -64,12 +64,23 @@ When you type text without a `/` prefix, mneia first tries to detect intent and 
 
 If no intent is detected and an LLM is available (Ollama or API key configured), mneia:
 
-1. Searches your knowledge base for relevant documents
-2. Builds a context block from the top matches
-3. Sends the context + your question to the LLM
-4. Displays the response in a formatted panel
+1. Searches your knowledge base using hybrid search (FTS5 + vector similarity)
+2. Queries the knowledge graph for matching entities and relationships
+3. Injects personal context from persistent memory (preferences, patterns)
+4. Sends context + your question to the LLM
+5. Displays the response with source citations and follow-up suggestions
 
 The LLM can also suggest and automatically execute commands when appropriate. For example, if you ask "what's in my graph?", the LLM might respond with an explanation and also trigger `/graph`.
+
+## Session Memory
+
+Interactive mode tracks your conversations across sessions:
+
+1. **During the session** — interactions are recorded (role + content)
+2. **On exit** — the LLM summarizes the session in 2-3 sentences
+3. **Next session** — summaries and learned patterns are injected as context
+
+Memory entries have a **decay weight** that fades over time unless reinforced by access. This naturally prioritizes recent and frequently-referenced knowledge.
 
 ## Command Suggestions
 

@@ -4,11 +4,12 @@ Connectors are the data sources that mneia reads from to build your personal kno
 
 ## Available Connectors
 
-### Obsidian (Available)
+### Obsidian
 
 Reads markdown files from an Obsidian vault.
 
 **Auth:** Local filesystem access
+**Mode:** Watch (real-time file change detection)
 **Setup:**
 ```bash
 mneia connector enable obsidian
@@ -23,13 +24,14 @@ mneia connector sync obsidian    # Ingest documents
 - Detects `#tags` and `[[wikilinks]]`
 - Excludes `.obsidian/` and other hidden directories
 - Supports configurable exclude folders
-- Watches for file changes when running as daemon
+- Real-time file watching via `watchfiles` when running as daemon
 
-### Google Calendar (Available)
+### Google Calendar
 
 Reads events from Google Calendar via OAuth2.
 
 **Auth:** OAuth2 (readonly)
+**Mode:** Poll
 **Setup:**
 ```bash
 mneia connector enable google-calendar
@@ -43,11 +45,12 @@ mneia connector sync google-calendar
 - Supports configurable lookback period
 - Detects recurring events and conference data
 
-### Gmail (Available)
+### Gmail
 
 Reads emails from Gmail via OAuth2.
 
 **Auth:** OAuth2 (readonly)
+**Mode:** Poll
 **Setup:**
 ```bash
 mneia connector enable gmail
@@ -62,11 +65,12 @@ mneia connector sync gmail
 - Supports Gmail search query filters
 - Configurable max results per sync
 
-### Google Drive (Available)
+### Google Drive
 
 Reads files from Google Drive including Docs, Sheets, and Slides.
 
 **Auth:** OAuth2 (readonly)
+**Mode:** Poll
 **Setup:**
 ```bash
 mneia connector enable google-drive
@@ -83,11 +87,12 @@ mneia connector sync google-drive
 - Includes shared drives
 - Truncates large files (>50KB) to prevent memory issues
 
-### Apple Notes (Available)
+### Apple Notes
 
 Reads notes from the macOS Apple Notes app via AppleScript.
 
 **Auth:** AppleScript (macOS only)
+**Mode:** Poll
 **Setup:**
 ```bash
 mneia connector enable apple-notes
@@ -101,11 +106,12 @@ mneia connector sync apple-notes
 - Supports folder filtering
 - Extracts modification dates and folder metadata
 
-### Asana (Available)
+### Asana
 
 Reads tasks and projects from Asana.
 
 **Auth:** API token (Personal Access Token)
+**Mode:** Poll
 **Setup:**
 ```bash
 mneia connector enable asana
@@ -119,11 +125,12 @@ mneia connector sync asana
 - Supports modified_since filtering
 - Auto-detects workspace if not specified
 
-### JIRA (Available)
+### JIRA
 
 Reads issues from Atlassian JIRA.
 
 **Auth:** API token (email + token)
+**Mode:** Poll
 **Setup:**
 ```bash
 mneia connector enable jira
@@ -137,11 +144,12 @@ mneia connector sync jira
 - Includes last 5 comments per issue
 - Extracts assignee, reporter, status, priority, labels
 
-### Confluence (Available)
+### Confluence
 
 Reads pages from Atlassian Confluence.
 
 **Auth:** API token (email + token)
+**Mode:** Poll
 **Setup:**
 ```bash
 mneia connector enable confluence
@@ -155,11 +163,12 @@ mneia connector sync confluence
 - Supports space key filtering
 - Extracts page hierarchy (ancestors)
 
-### Notion (Available)
+### Notion
 
 Reads pages and databases from Notion.
 
 **Auth:** Bearer token (Integration token)
+**Mode:** Poll
 **Setup:**
 ```bash
 mneia connector enable notion
@@ -173,11 +182,12 @@ mneia connector sync notion
 - Supports database ID filtering
 - Extracts page metadata, participants, parent info
 
-### Zoom (Available)
+### Zoom
 
 Reads meeting recordings and transcripts from Zoom.
 
 **Auth:** OAuth2 (Server-to-Server app)
+**Mode:** Poll
 **Setup:**
 ```bash
 mneia connector enable zoom
@@ -191,11 +201,12 @@ mneia connector sync zoom
 - Extracts meeting topic, duration, host
 - Supports date range filtering
 
-### Chrome History (Available)
+### Chrome History
 
-Reads browsing history from Google Chrome.
+Reads browsing history and optionally scrapes page content from Google Chrome.
 
 **Auth:** Local filesystem (read-only copy)
+**Mode:** Poll
 **Setup:**
 ```bash
 mneia connector enable chrome-history
@@ -208,12 +219,23 @@ mneia connector sync chrome-history
 - Extracts URLs, titles, visit counts
 - Auto-detects Chrome profile path on macOS, Linux, Windows
 - Supports custom history file path
+- Optional page content scraping (opt-in via `scrape_content` setting)
+- Configurable domain exclusion list for scraping
+- Rate-limited scraping to avoid overloading sites
 
-### Audio Transcription (Available)
+**Content scraping settings:**
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `scrape_content` | `false` | Enable page content scraping |
+| `scrape_max_pages` | `20` | Max pages to scrape per sync |
+| `scrape_domains_exclude` | (empty) | Comma-separated domains to skip |
+
+### Audio Transcription
 
 Transcribes audio files using whisper.cpp or faster-whisper.
 
 **Auth:** Local filesystem
+**Mode:** Poll
 **Setup:**
 ```bash
 pip install faster-whisper  # or: brew install whisper-cpp
@@ -227,6 +249,146 @@ mneia connector sync audio-transcription
 - Auto-detects backend (faster-whisper or whisper-cpp)
 - Configurable model size (tiny/base/small/medium/large)
 - Configurable language
+
+### Live Audio
+
+Captures system audio in real-time during meetings and transcribes using whisper.
+
+**Auth:** Sounddevice (requires virtual audio device on macOS)
+**Mode:** Watch (continuous recording)
+**Setup:**
+```bash
+pip install mneia[audio]    # Installs sounddevice
+mneia connector enable live-audio
+mneia connector setup live-audio
+```
+
+**Features:**
+- Records audio in 30-second chunks at 16kHz mono
+- Real-time transcription via shared transcription engine
+- Yields `live_transcript` documents with meeting metadata
+- macOS: requires BlackHole virtual audio device
+- Linux: uses PulseAudio monitor source
+- Generates meeting_id for grouping chunks
+- Requires HIGH-level safety permission
+
+**Settings:**
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `device_index` | (auto) | Audio input device index |
+| `model` | `base` | Whisper model size |
+| `language` | `en` | Transcription language |
+
+### Slack
+
+Reads channel messages from Slack workspaces.
+
+**Auth:** Bot token (with `channels:history`, `channels:read` scopes)
+**Mode:** Poll
+**Setup:**
+```bash
+mneia connector enable slack
+mneia connector setup slack
+mneia connector sync slack
+```
+
+**Features:**
+- Fetches messages from configured channels
+- Extracts message text, sender, timestamps
+- Supports `since` filtering via checkpoint
+- Rate-limited to 1 request/second
+
+**Settings:**
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `slack_token` | (required) | Bot token (`xoxb-...`) |
+| `channels` | (required) | Comma-separated channel names |
+
+### GitHub
+
+Reads issues and pull requests from GitHub repositories.
+
+**Auth:** Personal Access Token
+**Mode:** Poll
+**Setup:**
+```bash
+mneia connector enable github
+mneia connector setup github
+mneia connector sync github
+```
+
+**Features:**
+- Fetches open and closed issues
+- Fetches pull requests with merge status
+- Extracts labels, assignees, comments count
+- Supports multiple repositories
+- Incremental sync via `since` parameter
+
+**Settings:**
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `github_token` | (required) | Personal Access Token |
+| `repos` | (required) | Comma-separated `owner/repo` list |
+
+### Linear
+
+Reads issues and projects from Linear via GraphQL API.
+
+**Auth:** API key
+**Mode:** Poll
+**Setup:**
+```bash
+mneia connector enable linear
+mneia connector setup linear
+mneia connector sync linear
+```
+
+**Features:**
+- Fetches issues with state, priority, labels, team
+- Priority mapping: 1=Urgent, 2=High, 3=Medium, 4=Low
+- Optional team filtering
+- Date-based incremental sync
+
+**Settings:**
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `linear_api_key` | (required) | Linear API key |
+| `team_ids` | (optional) | Comma-separated team IDs |
+
+### Todoist
+
+Reads tasks and projects from Todoist.
+
+**Auth:** API token
+**Mode:** Poll
+**Setup:**
+```bash
+mneia connector enable todoist
+mneia connector setup todoist
+mneia connector sync todoist
+```
+
+**Features:**
+- Fetches active tasks with project mapping
+- Extracts priority, due dates, labels
+- Maps project IDs to project names
+- Supports incremental sync
+
+**Settings:**
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `todoist_api_token` | (required) | Todoist API token |
+
+## Connector Modes
+
+Connectors operate in one of two modes:
+
+| Mode | Description | Connectors |
+|------|-------------|------------|
+| **Poll** | Fetches data at configured intervals | Most connectors |
+| **Watch** | Real-time event-based detection | Obsidian, Live Audio |
+
+Watch mode uses `watchfiles` for filesystem events with 500ms debouncing and extension filtering. Poll mode uses configurable intervals (default: 300 seconds).
 
 ## Agent Management
 
@@ -250,7 +412,7 @@ In interactive mode:
 Implement the `BaseConnector` interface:
 
 ```python
-from mneia.core.connector import BaseConnector, ConnectorManifest, RawDocument
+from mneia.core.connector import BaseConnector, ConnectorManifest, ConnectorMode, RawDocument
 
 class MyConnector(BaseConnector):
     MANIFEST = ConnectorManifest(
@@ -259,7 +421,7 @@ class MyConnector(BaseConnector):
         version="1.0.0",
         description="Read data from My Service",
         auth_type="api_key",
-        mode="poll",
+        mode=ConnectorMode.POLL,
         poll_interval_seconds=300,
     )
 
@@ -277,6 +439,16 @@ class MyConnector(BaseConnector):
     def interactive_setup(self) -> dict:
         # Return settings dict from user input
         return {"api_key": "..."}
+```
+
+### Watch Mode Connectors
+
+For real-time connectors, set `mode=ConnectorMode.WATCH` and implement `fetch_changed`:
+
+```python
+async def fetch_changed(self, changed_paths: list[Path]) -> list[RawDocument]:
+    # Process only the changed files
+    return [...]
 ```
 
 ### Publishing

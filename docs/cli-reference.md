@@ -53,6 +53,7 @@ Set a configuration value using dot-separated key paths.
 ```bash
 mneia config set llm.model phi3:mini
 mneia config set llm.provider anthropic
+mneia config set enrichment_scrape_enabled true
 ```
 
 ### `mneia config reset`
@@ -105,7 +106,7 @@ Show memory statistics including total documents, entities, associations, and pe
 
 ### `mneia memory search <query>`
 
-Full-text search across all stored documents using SQLite FTS5. Supports natural language queries — special characters are automatically sanitized.
+Hybrid search across all stored documents using SQLite FTS5 full-text search and ChromaDB vector similarity. Results are merged and deduplicated.
 
 **Options:**
 - `--limit, -n <int>` — Maximum results (default: 10)
@@ -131,7 +132,7 @@ Clear stored memory data.
 
 ### `mneia extract`
 
-Run LLM-powered entity extraction on unprocessed documents. Extracts people, projects, topics, decisions, and relationships.
+Run LLM-powered entity extraction on unprocessed documents. Extracts people, projects, topics, decisions, and relationships. Entities are also embedded into ChromaDB for vector search.
 
 **Options:**
 - `--limit, -n <int>` — Maximum documents to process (default: 50)
@@ -176,6 +177,8 @@ Force regenerate all `.md` context files from the current knowledge graph using 
 
 Generated files: `CLAUDE.md`, `people.md`, `projects.md`, `decisions.md`, `beliefs.md`
 
+Context files are also auto-regenerated when the daemon detects enough new documents (configurable via `context_min_changes_for_regen`).
+
 ### `mneia context show`
 
 List generated context files with sizes and modification dates.
@@ -190,10 +193,54 @@ Create symlinks from generated context files into a project directory.
 
 ### `mneia ask <question>`
 
-Ask a question about your knowledge using RAG (Retrieval-Augmented Generation). Searches relevant documents, builds context, and generates an LLM response.
+Ask a question about your knowledge using RAG (Retrieval-Augmented Generation). Uses hybrid search (FTS5 + vector similarity) to find relevant documents, queries the knowledge graph for entity context, and generates an LLM response with citations.
 
 **Options:**
 - `--source, -s <name>` — Limit search to a specific source
+
+### `mneia chat`
+
+Enter multi-turn conversation mode with preserved history and cross-session memory. The conversation engine injects personal context (learned preferences, patterns) from persistent memory.
+
+---
+
+## Permissions
+
+### `mneia permission list`
+
+List all currently granted permissions with their expiry times.
+
+### `mneia permission grant <operation>`
+
+Pre-approve a risky operation. Operations are classified by risk level (LOW, MEDIUM, HIGH, CRITICAL). LOW-risk operations are auto-approved; MEDIUM and above require explicit consent.
+
+### `mneia permission revoke <operation>`
+
+Revoke a previously granted permission.
+
+---
+
+## MCP Server
+
+### `mneia mcp serve`
+
+Start the MCP (Model Context Protocol) server using stdio transport. This allows AI tools like Claude Code to query your knowledge base directly.
+
+**Available MCP tools:**
+- `mneia_search` — Full-text search across stored knowledge
+- `mneia_ask` — Ask a question with RAG
+- `mneia_list_connectors` — List connectors and status
+- `mneia_connector_status` — Detailed connector info
+- `mneia_sync` — Trigger a connector sync
+- `mneia_graph_query` — Query the knowledge graph by entity
+- `mneia_memory_stats` — Get document/entity counts
+- `mneia_marketplace_search` — Search marketplace
+
+**Available MCP resources:**
+- `mneia://documents/{doc_id}` — Retrieve a specific document
+- `mneia://context/{filename}` — Read a generated context file
+
+See [MCP Integration](mcp-integration.md) for setup instructions.
 
 ---
 
@@ -203,7 +250,7 @@ Ask a question about your knowledge using RAG (Retrieval-Augmented Generation). 
 
 Launch an interactive TUI dashboard (built with Textual) showing:
 - Daemon status
-- Agent states (running, stopped, error)
+- Agent states (running, stopped, error) for all 6 agent types
 - Memory statistics
 - Knowledge graph overview
 
@@ -221,6 +268,22 @@ Show daemon log output.
 - `--level, -l <level>` — Filter by log level (debug, info, warn, error)
 - `--follow, -f` — Follow log output (like `tail -f`)
 - `--lines, -n <int>` — Number of lines to show (default: 50)
+
+---
+
+## Marketplace
+
+### `mneia marketplace list`
+
+Shows all connectors in the marketplace index with installation status.
+
+### `mneia marketplace search <query>`
+
+Search by name, description, and tags.
+
+### `mneia marketplace install <name>`
+
+Install a connector package via pip.
 
 ---
 

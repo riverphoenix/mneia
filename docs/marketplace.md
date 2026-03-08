@@ -56,6 +56,10 @@ yourservice = "mneia_connector_yourservice:YourConnector"
 4. Publish to PyPI
 5. Submit a PR to the mneia repo to add your connector to `marketplace/index.json`
 
+## MCP Integration
+
+The marketplace is also accessible via the MCP server. AI tools like Claude Code can search for and discover connectors through the `mneia_marketplace_search` MCP tool. See [MCP Integration](mcp-integration.md) for details.
+
 ## Index Format
 
 The marketplace index (`marketplace/index.json`) contains:

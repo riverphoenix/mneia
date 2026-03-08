@@ -427,7 +427,36 @@ class InteractiveSession:
         except (ConnectionRefusedError, FileNotFoundError, OSError):
             console.print("[dim]Daemon is not running.[/dim]")
 
+    def _detect_intent(self, user_input: str) -> tuple[str | None, str]:
+        lower = user_input.lower().strip()
+
+        if any(w in lower for w in ["start daemon", "start the daemon", "run daemon", "launch daemon"]):
+            return "start", ""
+        if any(w in lower for w in ["stop daemon", "stop the daemon", "kill daemon", "shut down"]):
+            return "stop", ""
+        if any(w in lower for w in ["show stats", "how many documents", "how many notes", "document count"]):
+            return "stats", ""
+        if any(w in lower for w in ["show recent", "latest documents", "latest notes", "what was ingested"]):
+            return "recent", ""
+        if any(w in lower for w in ["list connectors", "show connectors", "which connectors", "what connectors"]):
+            return "connectors", ""
+        if any(w in lower for w in ["show status", "daemon status", "is it running", "are agents running"]):
+            return "status", ""
+        if lower.startswith("sync "):
+            return "sync", lower.split(None, 1)[1] if " " in lower else ""
+        if any(w in lower for w in ["show config", "current config", "show settings"]):
+            return "config", ""
+
+        return None, ""
+
     def _handle_conversation(self, user_input: str) -> None:
+        intent, intent_arg = self._detect_intent(user_input)
+        if intent:
+            console.print(f"  [dim]→ Running /{intent} {intent_arg}[/dim]")
+            cmd_str = f"/{intent} {intent_arg}".strip()
+            self._handle_command(cmd_str)
+            return
+
         if not self._ollama_available:
             console.print("[yellow]LLM not available.[/yellow]")
             console.print("[dim]Start Ollama or configure an API key in [cyan]/config[/cyan][/dim]")
@@ -458,7 +487,9 @@ class InteractiveSession:
             "Answer based on the provided context from the user's documents. "
             "Be concise, direct, and helpful. "
             "If the context doesn't contain relevant information, say so honestly. "
-            "Reference specific documents when possible."
+            "Reference specific documents when possible.\n\n"
+            "If the user's question is too vague to answer well, ask a clarifying question. "
+            "Suggest specific follow-ups the user could ask."
         )
 
         prompt = f"""Context from your knowledge base:

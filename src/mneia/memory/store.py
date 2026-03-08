@@ -183,9 +183,19 @@ class MemoryStore:
         finally:
             conn.close()
 
+    @staticmethod
+    def _sanitize_fts_query(query: str) -> str:
+        import re
+
+        tokens = re.findall(r"\w+", query)
+        if not tokens:
+            return '""'
+        return " OR ".join(f'"{t}"' for t in tokens)
+
     async def search(self, query: str, limit: int = 10) -> list[StoredDocument]:
         conn = self._get_conn()
         try:
+            fts_query = self._sanitize_fts_query(query)
             cursor = conn.execute(
                 """
                 SELECT d.* FROM documents d
@@ -194,7 +204,7 @@ class MemoryStore:
                 ORDER BY rank
                 LIMIT ?
                 """,
-                (query, limit),
+                (fts_query, limit),
             )
             return [self._row_to_doc(row) for row in cursor.fetchall()]
         finally:

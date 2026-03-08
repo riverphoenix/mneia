@@ -127,6 +127,14 @@ mneia agents                          # Interactive TUI dashboard (Textual)
 mneia logs [--level info] [--follow]  # Tail daemon logs
 ```
 
+### Marketplace
+
+```bash
+mneia marketplace list                # List available connectors
+mneia marketplace search <query>      # Search marketplace
+mneia marketplace install <name>      # Install a connector
+```
+
 ### Other
 
 ```bash
@@ -173,14 +181,14 @@ Natural language is also supported — the LLM detects intent and can automatica
 | Google Calendar | Calendar events | OAuth2 (readonly) | Available |
 | Gmail | Email messages | OAuth2 (readonly) | Available |
 | Google Drive | Files, Docs, Sheets, Slides | OAuth2 (readonly) | Available |
-| Apple Notes | macOS Notes app | AppleScript | Planned |
-| Asana | Projects & tasks | API token | Planned |
-| JIRA | Tickets | API token | Planned |
-| Confluence | Wiki pages | API token | Planned |
-| Notion | Pages & databases | Bearer token | Planned |
-| Zoom | Meeting details | API key | Planned |
-| Chrome | Browser history | Local SQLite | Planned |
-| Audio | Meeting transcription | System audio | Planned |
+| Apple Notes | macOS Notes app | AppleScript | Available |
+| Asana | Projects & tasks | API token | Available |
+| JIRA | Tickets | API token | Available |
+| Confluence | Wiki pages | API token | Available |
+| Notion | Pages & databases | Bearer token | Available |
+| Zoom | Meeting recordings & transcripts | OAuth2 (S2S) | Available |
+| Chrome History | Browser history | Local SQLite | Available |
+| Audio Transcription | Audio files | Local (whisper) | Available |
 
 ## Architecture
 

@@ -150,6 +150,20 @@ class KnowledgeGraph:
         finally:
             conn.close()
 
+    def update_node_properties(self, node_id: str, properties: dict[str, Any]) -> None:
+        if node_id not in self._graph:
+            return
+        self._graph.nodes[node_id]["properties"] = properties
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE graph_nodes SET properties = ? WHERE id = ?",
+                (json.dumps(properties), node_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def get_entities_by_type(self, entity_type: str) -> list[dict[str, Any]]:
         results = []
         for nid, data in self._graph.nodes(data=True):

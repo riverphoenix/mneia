@@ -83,18 +83,150 @@ mneia connector sync google-drive
 - Includes shared drives
 - Truncates large files (>50KB) to prevent memory issues
 
-### Planned Connectors
+### Apple Notes (Available)
 
-These connectors are planned for future releases:
+Reads notes from the macOS Apple Notes app via AppleScript.
 
-- **Apple Notes** — AppleScript-based reading from macOS Notes app
-- **Asana** — API token access to projects and tasks
-- **JIRA** — API token access to tickets
-- **Confluence** — API token access to wiki pages
-- **Notion** — Bearer token access to pages and databases
-- **Zoom** — API key access to meeting recordings and details
-- **Chrome History** — Local SQLite file reading
-- **Audio Transcription** — System audio capture with whisper.cpp
+**Auth:** AppleScript (macOS only)
+**Setup:**
+```bash
+mneia connector enable apple-notes
+mneia connector setup apple-notes
+mneia connector sync apple-notes
+```
+
+**Features:**
+- Reads all notes via AppleScript
+- Strips HTML formatting from note bodies
+- Supports folder filtering
+- Extracts modification dates and folder metadata
+
+### Asana (Available)
+
+Reads tasks and projects from Asana.
+
+**Auth:** API token (Personal Access Token)
+**Setup:**
+```bash
+mneia connector enable asana
+mneia connector setup asana
+mneia connector sync asana
+```
+
+**Features:**
+- Fetches tasks from specific projects or entire workspace
+- Extracts assignee, due date, status, tags
+- Supports modified_since filtering
+- Auto-detects workspace if not specified
+
+### JIRA (Available)
+
+Reads issues from Atlassian JIRA.
+
+**Auth:** API token (email + token)
+**Setup:**
+```bash
+mneia connector enable jira
+mneia connector setup jira
+mneia connector sync jira
+```
+
+**Features:**
+- Fetches issues via JQL queries
+- Extracts Atlassian Document Format (ADF) descriptions
+- Includes last 5 comments per issue
+- Extracts assignee, reporter, status, priority, labels
+
+### Confluence (Available)
+
+Reads pages from Atlassian Confluence.
+
+**Auth:** API token (email + token)
+**Setup:**
+```bash
+mneia connector enable confluence
+mneia connector setup confluence
+mneia connector sync confluence
+```
+
+**Features:**
+- Searches pages via CQL
+- Strips HTML from storage format body
+- Supports space key filtering
+- Extracts page hierarchy (ancestors)
+
+### Notion (Available)
+
+Reads pages and databases from Notion.
+
+**Auth:** Bearer token (Integration token)
+**Setup:**
+```bash
+mneia connector enable notion
+mneia connector setup notion
+mneia connector sync notion
+```
+
+**Features:**
+- Fetches pages via search API with pagination
+- Converts blocks to markdown (paragraphs, headings, lists, code, to-do, dividers)
+- Supports database ID filtering
+- Extracts page metadata, participants, parent info
+
+### Zoom (Available)
+
+Reads meeting recordings and transcripts from Zoom.
+
+**Auth:** OAuth2 (Server-to-Server app)
+**Setup:**
+```bash
+mneia connector enable zoom
+mneia connector setup zoom
+mneia connector sync zoom
+```
+
+**Features:**
+- Fetches meeting recordings list
+- Downloads and parses VTT transcripts
+- Extracts meeting topic, duration, host
+- Supports date range filtering
+
+### Chrome History (Available)
+
+Reads browsing history from Google Chrome.
+
+**Auth:** Local filesystem (read-only copy)
+**Setup:**
+```bash
+mneia connector enable chrome-history
+mneia connector setup chrome-history
+mneia connector sync chrome-history
+```
+
+**Features:**
+- Copies Chrome history database (read-only, non-blocking)
+- Extracts URLs, titles, visit counts
+- Auto-detects Chrome profile path on macOS, Linux, Windows
+- Supports custom history file path
+
+### Audio Transcription (Available)
+
+Transcribes audio files using whisper.cpp or faster-whisper.
+
+**Auth:** Local filesystem
+**Setup:**
+```bash
+pip install faster-whisper  # or: brew install whisper-cpp
+mneia connector enable audio-transcription
+mneia connector setup audio-transcription
+mneia connector sync audio-transcription
+```
+
+**Features:**
+- Supports MP3, WAV, M4A, OGG, FLAC, WebM, MP4
+- Auto-detects backend (faster-whisper or whisper-cpp)
+- Configurable model size (tiny/base/small/medium/large)
+- Configurable language
 
 ## Agent Management
 

@@ -31,6 +31,26 @@ def _discover_builtins() -> None:
     _register(GmailConnector)
     _register(GoogleDriveConnector)
 
+    from mneia.connectors.apple_notes import AppleNotesConnector
+    from mneia.connectors.asana import AsanaConnector
+    from mneia.connectors.chrome_history import ChromeHistoryConnector
+    from mneia.connectors.confluence import ConfluenceConnector
+    from mneia.connectors.jira import JiraConnector
+    from mneia.connectors.notion import NotionConnector
+    from mneia.connectors.zoom import ZoomConnector
+
+    _register(AppleNotesConnector)
+    _register(AsanaConnector)
+    _register(JiraConnector)
+    _register(ConfluenceConnector)
+    _register(NotionConnector)
+    _register(ZoomConnector)
+    _register(ChromeHistoryConnector)
+
+    from mneia.connectors.audio_transcription import AudioTranscriptionConnector
+
+    _register(AudioTranscriptionConnector)
+
 
 def _discover_third_party() -> None:
     try:

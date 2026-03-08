@@ -872,19 +872,74 @@ app.add_typer(marketplace_app, name="marketplace")
 @marketplace_app.command("search")
 def marketplace_search(query: str) -> None:
     """Search available connectors in the marketplace."""
-    console.print("[yellow]Not yet implemented (Phase 9)[/yellow]")
+    from mneia.marketplace.registry import search_index
+
+    results = search_index(query)
+    if not results:
+        console.print(f"[yellow]No connectors found matching: {query}[/yellow]")
+        return
+
+    table = Table(title=f"Marketplace results for '{query}'")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description")
+    table.add_column("Author", style="dim")
+    table.add_column("Version")
+    table.add_column("Status")
+
+    for entry in results:
+        status = "[green]installed[/green]" if entry.installed else "[dim]available[/dim]"
+        table.add_row(entry.name, entry.description[:60], entry.author, entry.version, status)
+
+    console.print(table)
 
 
 @marketplace_app.command("install")
 def marketplace_install(name: str) -> None:
     """Install a connector from the marketplace."""
-    console.print("[yellow]Not yet implemented (Phase 9)[/yellow]")
+    from mneia.marketplace.installer import install_connector, is_installed
+    from mneia.marketplace.registry import fetch_index
+
+    entries = fetch_index()
+    entry = next((e for e in entries if e.name == name), None)
+
+    if not entry:
+        console.print(f"[red]Connector '{name}' not found in marketplace.[/red]")
+        raise typer.Exit(1)
+
+    if is_installed(entry.package_name):
+        console.print(f"[yellow]{entry.package_name} is already installed.[/yellow]")
+        return
+
+    console.print(f"[cyan]Installing {entry.package_name}...[/cyan]")
+    if install_connector(entry.package_name):
+        console.print(f"[green]Installed {entry.display_name}![/green]")
+        console.print(f"Enable it with: [cyan]mneia connector enable {name}[/cyan]")
+    else:
+        console.print("[red]Installation failed. Check logs for details.[/red]")
+        raise typer.Exit(1)
 
 
 @marketplace_app.command("list")
 def marketplace_list_cmd() -> None:
     """List all available marketplace connectors."""
-    console.print("[yellow]Not yet implemented (Phase 9)[/yellow]")
+    from mneia.marketplace.registry import fetch_index
+
+    entries = fetch_index()
+    if not entries:
+        console.print("[yellow]No connectors available.[/yellow]")
+        return
+
+    table = Table(title="Marketplace Connectors")
+    table.add_column("Name", style="cyan")
+    table.add_column("Display Name")
+    table.add_column("Auth", style="dim")
+    table.add_column("Tags", style="dim")
+    table.add_column("Status")
+
+    for entry in entries:
+        status = "[green]installed[/green]" if entry.installed else "[dim]available[/dim]"
+        tags = ", ".join(entry.tags) if entry.tags else ""
+        table.add_row(entry.name, entry.display_name, entry.auth_type, tags, status)
 
 
 # --- Agents TUI ---

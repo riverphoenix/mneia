@@ -1,0 +1,60 @@
+{
+  "version": "1.0.0",
+  "connectors": [
+    {
+      "name": "slack",
+      "display_name": "Slack",
+      "description": "Read messages and threads from Slack workspaces",
+      "version": "0.1.0",
+      "author": "mneia-community",
+      "package_name": "mneia-connector-slack",
+      "auth_type": "oauth2",
+      "tags": ["messaging", "chat", "communication"],
+      "homepage": "https://github.com/riverphoenix/mneia-connector-slack"
+    },
+    {
+      "name": "linear",
+      "display_name": "Linear",
+      "description": "Read issues and projects from Linear",
+      "version": "0.1.0",
+      "author": "mneia-community",
+      "package_name": "mneia-connector-linear",
+      "auth_type": "api_token",
+      "tags": ["project-management", "issues", "engineering"],
+      "homepage": "https://github.com/riverphoenix/mneia-connector-linear"
+    },
+    {
+      "name": "github",
+      "display_name": "GitHub",
+      "description": "Read issues, PRs, and discussions from GitHub repositories",
+      "version": "0.1.0",
+      "author": "mneia-community",
+      "package_name": "mneia-connector-github",
+      "auth_type": "api_token",
+      "tags": ["code", "development", "issues", "pull-requests"],
+      "homepage": "https://github.com/riverphoenix/mneia-connector-github"
+    },
+    {
+      "name": "todoist",
+      "display_name": "Todoist",
+      "description": "Read tasks and projects from Todoist",
+      "version": "0.1.0",
+      "author": "mneia-community",
+      "package_name": "mneia-connector-todoist",
+      "auth_type": "api_token",
+      "tags": ["tasks", "productivity", "to-do"],
+      "homepage": "https://github.com/riverphoenix/mneia-connector-todoist"
+    },
+    {
+      "name": "microsoft-teams",
+      "display_name": "Microsoft Teams",
+      "description": "Read messages and meetings from Microsoft Teams",
+      "version": "0.1.0",
+      "author": "mneia-community",
+      "package_name": "mneia-connector-teams",
+      "auth_type": "oauth2",
+      "tags": ["messaging", "meetings", "microsoft"],
+      "homepage": "https://github.com/riverphoenix/mneia-connector-teams"
+    }
+  ]
+}

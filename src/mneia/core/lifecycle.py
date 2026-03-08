@@ -82,7 +82,14 @@ class AgentManager:
 
     async def _start_agents(self) -> None:
         from mneia.agents.listener import ListenerAgent
+        from mneia.agents.meta import MetaAgent
+        from mneia.agents.worker import WorkerAgent
         from mneia.connectors import create_connector
+        from mneia.memory.graph import KnowledgeGraph
+        from mneia.memory.store import MemoryStore
+
+        store = MemoryStore()
+        graph = KnowledgeGraph()
 
         for name, conn_config in self.config.connectors.items():
             if not conn_config.enabled:
@@ -112,6 +119,33 @@ class AgentManager:
                 name=agent.name,
             )
             logger.info(f"Started agent: {agent.name}")
+
+        worker = WorkerAgent(
+            name="worker",
+            config=self.config,
+            store=store,
+            graph=graph,
+        )
+        self._agents[worker.name] = worker
+        self._tasks[worker.name] = asyncio.create_task(
+            self._run_agent(worker),
+            name=worker.name,
+        )
+        logger.info("Started agent: worker")
+
+        meta = MetaAgent(
+            name="meta",
+            config=self.config,
+            agents=self._agents,
+            store=store,
+            graph=graph,
+        )
+        self._agents[meta.name] = meta
+        self._tasks[meta.name] = asyncio.create_task(
+            self._run_agent(meta),
+            name=meta.name,
+        )
+        logger.info("Started agent: meta")
 
     async def _run_agent(self, agent: BaseAgent) -> None:
         try:

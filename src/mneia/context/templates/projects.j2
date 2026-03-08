@@ -1,0 +1,21 @@
+# Projects
+
+> Generated: {{ generated_at }} | {{ projects | length }} projects tracked
+
+{% if projects %}
+{% for project in projects %}
+## {{ project.name }}
+
+{% if project.get('description') %}- {{ project.description }}{% endif %}
+
+{% set topic_summary = summaries.get('topic:' + project.name, '') %}
+{% if topic_summary %}
+{{ topic_summary }}
+{% endif %}
+
+---
+
+{% endfor %}
+{% else %}
+No projects extracted yet.
+{% endif %}

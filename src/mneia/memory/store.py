@@ -11,7 +11,7 @@ from mneia.core.connector import RawDocument
 
 DB_PATH = DATA_DIR / "mneia.db"
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -144,9 +144,15 @@ class MemoryStore:
                     "INSERT INTO schema_version (version) VALUES (?)",
                     (SCHEMA_VERSION,),
                 )
+            self._migrate(conn)
             conn.commit()
         finally:
             conn.close()
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
+        if "processed" not in columns:
+            conn.execute("ALTER TABLE documents ADD COLUMN processed INTEGER DEFAULT 0")
 
     async def store_document(self, doc: RawDocument) -> int:
         import json
@@ -326,6 +332,38 @@ class MemoryStore:
             else:
                 row = conn.execute("SELECT COUNT(*) FROM documents").fetchone()
             return row[0]
+        finally:
+            conn.close()
+
+    async def get_unprocessed(self, limit: int = 50) -> list[StoredDocument]:
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM documents WHERE processed = 0 ORDER BY id ASC LIMIT ?",
+                (limit,),
+            )
+            return [self._row_to_doc(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    async def mark_processed(self, doc_id: int) -> None:
+        conn = self._get_conn()
+        try:
+            conn.execute("UPDATE documents SET processed = 1 WHERE id = ?", (doc_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    async def get_documents_in_range(
+        self, start: str, end: str, limit: int = 100
+    ) -> list[StoredDocument]:
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM documents WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?",
+                (start, end, limit),
+            )
+            return [self._row_to_doc(row) for row in cursor.fetchall()]
         finally:
             conn.close()
 

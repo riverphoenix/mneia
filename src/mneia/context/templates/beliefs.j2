@@ -1,0 +1,12 @@
+# Beliefs & Values
+
+> Generated: {{ generated_at }} | {{ beliefs | length }} beliefs recorded
+
+{% if beliefs %}
+{% for belief in beliefs %}
+- **{{ belief.name }}**{% if belief.get('description') %}: {{ belief.description }}{% endif %}
+
+{% endfor %}
+{% else %}
+No beliefs extracted yet.
+{% endif %}

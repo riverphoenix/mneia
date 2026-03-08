@@ -1,0 +1,12 @@
+# Decisions
+
+> Generated: {{ generated_at }} | {{ decisions | length }} decisions recorded
+
+{% if decisions %}
+{% for decision in decisions %}
+- **{{ decision.name }}**{% if decision.get('description') %}: {{ decision.description }}{% endif %}
+
+{% endfor %}
+{% else %}
+No decisions extracted yet.
+{% endif %}

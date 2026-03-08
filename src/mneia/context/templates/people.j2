@@ -1,0 +1,21 @@
+# People
+
+> Generated: {{ generated_at }} | {{ people | length }} people known
+
+{% if people %}
+{% for person in people %}
+## {{ person.name }}
+
+{% if person.get('description') %}- {{ person.description }}{% endif %}
+
+{% set person_summary = summaries.get('person:' + person.name, '') %}
+{% if person_summary %}
+{{ person_summary }}
+{% endif %}
+
+---
+
+{% endfor %}
+{% else %}
+No people extracted yet. Run `mneia connector sync` followed by `mneia extract` to populate.
+{% endif %}

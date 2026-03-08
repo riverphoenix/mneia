@@ -139,6 +139,24 @@ class KnowledgeGraph:
         finally:
             conn.close()
 
+    def remove_node(self, node_id: str) -> None:
+        if node_id in self._graph:
+            self._graph.remove_node(node_id)
+        conn = self._get_conn()
+        try:
+            conn.execute("DELETE FROM graph_edges WHERE source_id = ? OR target_id = ?", (node_id, node_id))
+            conn.execute("DELETE FROM graph_nodes WHERE id = ?", (node_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_entities_by_type(self, entity_type: str) -> list[dict[str, Any]]:
+        results = []
+        for nid, data in self._graph.nodes(data=True):
+            if data.get("entity_type") == entity_type:
+                results.append({"id": nid, "name": data.get("name", ""), **data.get("properties", {})})
+        return results
+
     def get_neighbors(self, node_id: str, depth: int = 1) -> dict[str, Any]:
         if node_id not in self._graph:
             return {"nodes": [], "edges": []}

@@ -33,6 +33,7 @@ dependencies = [
     "aiosqlite>=0.20",
     "watchfiles>=0.21",
     "prompt_toolkit>=3.0",
+    "textual>=0.80",
 ]
 
 [project.optional-dependencies]

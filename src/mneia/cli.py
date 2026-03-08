@@ -462,6 +462,54 @@ def memory_purge(
     console.print("[green]Memory purged.[/green]")
 
 
+# --- Extract command ---
+
+
+@app.command()
+def extract(
+    limit: int = typer.Option(50, "--limit", "-n", help="Max documents to process"),
+) -> None:
+    """Run entity extraction on unprocessed documents."""
+    from mneia.core.llm import LLMClient
+    from mneia.memory.graph import KnowledgeGraph
+    from mneia.memory.store import MemoryStore
+    from mneia.pipeline.extract import extract_and_store
+
+    config = MneiaConfig.load()
+    store = MemoryStore()
+    graph = KnowledgeGraph()
+    llm = LLMClient(config.llm)
+
+    async def _run() -> None:
+        docs = await store.get_unprocessed(limit=limit)
+        if not docs:
+            console.print("[dim]No unprocessed documents.[/dim]")
+            return
+
+        console.print(f"[cyan]Extracting entities from {len(docs)} documents...[/cyan]")
+        total_entities = 0
+        total_rels = 0
+
+        for i, doc in enumerate(docs, 1):
+            console.print(f"  [{i}/{len(docs)}] {doc.title[:60]}...", end="")
+            try:
+                result = await extract_and_store(doc, llm, store, graph)
+                total_entities += result["entities"]
+                total_rels += result["relationships"]
+                console.print(f" [green]✓[/green] {result['entities']}E {result['relationships']}R")
+            except Exception as e:
+                console.print(f" [red]✗ {e}[/red]")
+
+        console.print(f"\n[green]Extracted {total_entities} entities, {total_rels} relationships[/green]")
+        stats = graph.get_stats()
+        console.print(f"[dim]Graph now has {stats['total_nodes']} entities, {stats['total_edges']} relationships[/dim]")
+
+    try:
+        asyncio.run(_run())
+    finally:
+        asyncio.run(llm.close())
+
+
 # --- Context commands ---
 
 context_app = typer.Typer(help="Manage generated context files")
@@ -471,8 +519,29 @@ app.add_typer(context_app, name="context")
 @context_app.command("generate")
 def context_generate() -> None:
     """Force regenerate all context .md files."""
+    from mneia.core.llm import LLMClient
+    from mneia.memory.graph import KnowledgeGraph
+    from mneia.memory.store import MemoryStore
+    from mneia.pipeline.generate import generate_context_files
+
+    config = MneiaConfig.load()
+    store = MemoryStore()
+    graph = KnowledgeGraph()
+    llm = LLMClient(config.llm)
+
     console.print("[cyan]Generating context files...[/cyan]")
-    console.print("[yellow]Not yet implemented (Phase 4)[/yellow]")
+    try:
+        generated = asyncio.run(generate_context_files(config, store, graph, llm))
+        if generated:
+            for name in generated:
+                console.print(f"  [green]✓[/green] {name}")
+            console.print(f"\n[green]Generated {len(generated)} context file(s) in {config.context_output_dir}[/green]")
+        else:
+            console.print("[yellow]No files generated. Check templates and data.[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+    finally:
+        asyncio.run(llm.close())
 
 
 @context_app.command("show")
@@ -529,7 +598,45 @@ def ask(
     source: Optional[str] = typer.Option(None, "--source", "-s", help="Limit to source"),
 ) -> None:
     """Ask a question about your knowledge."""
-    console.print("[yellow]Not yet implemented (Phase 7)[/yellow]")
+    from mneia.core.llm import LLMClient
+    from mneia.memory.store import MemoryStore
+
+    config = MneiaConfig.load()
+    store = MemoryStore()
+    llm = LLMClient(config.llm)
+
+    results = asyncio.run(store.search(question, limit=5))
+
+    context_parts = []
+    for doc in results:
+        context_parts.append(f"[{doc.title} — {doc.source}]\n{doc.content[:1500]}")
+
+    context_block = "\n\n---\n\n".join(context_parts) if context_parts else "No relevant documents found."
+
+    system = (
+        "You are mneia, a personal knowledge assistant. "
+        "Answer based on the provided context from the user's documents. "
+        "Be concise, direct, and helpful. Reference specific documents when possible."
+    )
+    prompt = f"Context:\n\n{context_block}\n\nQuestion: {question}"
+
+    try:
+        response = asyncio.run(llm.generate(prompt, system=system))
+        from rich.markdown import Markdown
+
+        console.print()
+        console.print(Markdown(response))
+        console.print()
+
+        if results:
+            console.print("[dim]Sources:[/dim]")
+            for doc in results:
+                console.print(f"  [dim]• {doc.title} ({doc.source})[/dim]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print("[dim]Ensure Ollama is running or an API key is configured.[/dim]")
+    finally:
+        asyncio.run(llm.close())
 
 
 # --- Graph commands ---
@@ -541,7 +648,24 @@ app.add_typer(graph_app, name="graph")
 @graph_app.command("show")
 def graph_show() -> None:
     """Show knowledge graph summary."""
-    console.print("[yellow]Not yet implemented (Phase 3)[/yellow]")
+    from mneia.memory.graph import KnowledgeGraph
+
+    graph = KnowledgeGraph()
+    stats = graph.get_stats()
+
+    table = Table(title="Knowledge Graph")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", justify="right", style="green")
+
+    table.add_row("Total entities", str(stats["total_nodes"]))
+    table.add_row("Total relationships", str(stats["total_edges"]))
+
+    if stats.get("by_type"):
+        table.add_section()
+        for etype, count in sorted(stats["by_type"].items()):
+            table.add_row(f"  {etype}", str(count))
+
+    console.print(table)
 
 
 @graph_app.command("entities")
@@ -549,7 +673,88 @@ def graph_entities(
     entity_type: Optional[str] = typer.Option(None, "--type", "-t", help="Filter by type"),
 ) -> None:
     """List entities in the knowledge graph."""
-    console.print("[yellow]Not yet implemented (Phase 3)[/yellow]")
+    from mneia.memory.graph import KnowledgeGraph
+
+    graph = KnowledgeGraph()
+
+    table = Table(title="Entities")
+    table.add_column("Name", style="cyan")
+    table.add_column("Type", style="green")
+    table.add_column("Description", style="dim")
+
+    for nid, data in graph._graph.nodes(data=True):
+        etype = data.get("entity_type", "unknown")
+        if entity_type and etype != entity_type:
+            continue
+        name = data.get("name", nid)
+        desc = data.get("properties", {}).get("description", "")
+        table.add_row(name, etype, desc[:80])
+
+    console.print(table)
+
+
+@graph_app.command("person")
+def graph_person(name: str) -> None:
+    """Show everything known about a person."""
+    from mneia.memory.graph import KnowledgeGraph
+
+    graph = KnowledgeGraph()
+    node_id = f"person:{name.lower().replace(' ', '-')}"
+    result = graph.get_neighbors(node_id, depth=2)
+
+    if not result["nodes"]:
+        console.print(f"[yellow]No person found matching: {name}[/yellow]")
+        return
+
+    console.print(Panel(f"[bold cyan]{name}[/bold cyan]", title="Person"))
+    if result["edges"]:
+        table = Table(show_header=True)
+        table.add_column("Relationship", style="green")
+        table.add_column("Entity", style="cyan")
+        for edge in result["edges"]:
+            other = edge["target"] if edge["source"] == node_id else edge["source"]
+            other_name = other.split(":", 1)[-1].replace("-", " ").title()
+            table.add_row(edge["relation"], other_name)
+        console.print(table)
+
+
+@graph_app.command("topic")
+def graph_topic(name: str) -> None:
+    """Show everything known about a topic."""
+    from mneia.memory.graph import KnowledgeGraph
+
+    graph = KnowledgeGraph()
+    node_id = f"topic:{name.lower().replace(' ', '-')}"
+    result = graph.get_neighbors(node_id, depth=2)
+
+    if not result["nodes"]:
+        console.print(f"[yellow]No topic found matching: {name}[/yellow]")
+        return
+
+    console.print(Panel(f"[bold cyan]{name}[/bold cyan]", title="Topic"))
+    if result["edges"]:
+        table = Table(show_header=True)
+        table.add_column("Relationship", style="green")
+        table.add_column("Entity", style="cyan")
+        for edge in result["edges"]:
+            other = edge["target"] if edge["source"] == node_id else edge["source"]
+            other_name = other.split(":", 1)[-1].replace("-", " ").title()
+            table.add_row(edge["relation"], other_name)
+        console.print(table)
+
+
+@graph_app.command("export")
+def graph_export(
+    fmt: str = typer.Option("json", "--format", "-f", help="Export format (json)"),
+) -> None:
+    """Export the knowledge graph."""
+    import json as json_mod
+
+    from mneia.memory.graph import KnowledgeGraph
+
+    graph = KnowledgeGraph()
+    data = graph.export_json()
+    console.print_json(json_mod.dumps(data, indent=2, default=str))
 
 
 # --- Marketplace commands ---
@@ -576,15 +781,67 @@ def marketplace_list_cmd() -> None:
     console.print("[yellow]Not yet implemented (Phase 9)[/yellow]")
 
 
+# --- Agents TUI ---
+
+
+@app.command()
+def agents() -> None:
+    """Interactive TUI dashboard for monitoring agents."""
+    from mneia.tui import run_dashboard
+
+    run_dashboard()
+
+
 # --- Logs & Update ---
 
 
 @app.command()
 def logs(
     level: str = typer.Option("info", "--level", "-l", help="Log level filter"),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow log output"),
+    lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show"),
 ) -> None:
     """Tail daemon logs."""
-    console.print("[yellow]Not yet implemented (Phase 5)[/yellow]")
+    import time
+
+    from mneia.config import LOGS_DIR
+
+    log_file = LOGS_DIR / "daemon.log"
+    if not log_file.exists():
+        console.print("[yellow]No log file found. Start the daemon first.[/yellow]")
+        return
+
+    level_upper = level.upper()
+    level_priority = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "WARN": 2, "ERROR": 3, "CRITICAL": 4}
+    min_priority = level_priority.get(level_upper, 1)
+
+    def should_show(line: str) -> bool:
+        for lname, lprio in level_priority.items():
+            if lname in line.upper() and lprio >= min_priority:
+                return True
+        if min_priority <= 1:
+            return True
+        return False
+
+    with open(str(log_file)) as f:
+        all_lines = f.readlines()
+        tail = all_lines[-lines:]
+        for line in tail:
+            if should_show(line):
+                console.print(line.rstrip())
+
+        if follow:
+            console.print("[dim]Following logs... (Ctrl+C to stop)[/dim]")
+            try:
+                while True:
+                    line = f.readline()
+                    if line:
+                        if should_show(line):
+                            console.print(line.rstrip())
+                    else:
+                        time.sleep(0.5)
+            except KeyboardInterrupt:
+                console.print("\n[dim]Stopped.[/dim]")
 
 
 @app.command()

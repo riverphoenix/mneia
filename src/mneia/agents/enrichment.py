@@ -80,14 +80,24 @@ class EnrichmentAgent(BaseAgent):
                 sparse.append((nid, data))
         return sparse
 
-    async def _enrich_entity(self, name: str, entity_type: str) -> dict[str, Any] | None:
+    async def _enrich_entity(
+        self, name: str, entity_type: str,
+    ) -> dict[str, Any] | None:
         web_info = await self._web_search(name, entity_type)
+
+        if self.config.enrichment_scrape_enabled and web_info:
+            scraped = await self._scrape_search_urls(
+                name, entity_type,
+            )
+            if scraped:
+                web_info = f"{web_info}\n\n--- Scraped pages ---\n{scraped}"
 
         if not web_info:
             return None
 
         prompt = (
-            f"Given the following web search results about {entity_type} '{name}':\n\n"
+            f"Given the following web search results about "
+            f"{entity_type} '{name}':\n\n"
             f"{web_info}\n\n"
             "Extract:\n"
             "1. A concise description (1-2 sentences)\n"
@@ -114,7 +124,9 @@ class EnrichmentAgent(BaseAgent):
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(
                     "https://api.duckduckgo.com/",
-                    params={"q": query, "format": "json", "no_html": 1},
+                    params={
+                        "q": query, "format": "json", "no_html": 1,
+                    },
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -122,13 +134,68 @@ class EnrichmentAgent(BaseAgent):
                     abstract = data.get("Abstract", "")
                     if abstract:
                         parts.append(abstract)
-                    for topic in data.get("RelatedTopics", [])[:3]:
+                    for topic in data.get(
+                        "RelatedTopics", [],
+                    )[:3]:
                         if isinstance(topic, dict) and "Text" in topic:
                             parts.append(topic["Text"])
                     return "\n".join(parts) if parts else ""
         except Exception as e:
             logger.warning(f"Web search failed for {name}: {e}")
         return ""
+
+    async def _scrape_search_urls(
+        self, name: str, entity_type: str,
+    ) -> str:
+        urls = await self._extract_search_urls(name, entity_type)
+        if not urls:
+            return ""
+
+        from mneia.connectors.web_scraper import scrape_url
+
+        max_pages = self.config.enrichment_max_scrape_pages
+        delay = self.config.enrichment_scrape_delay_seconds
+        parts = []
+        for url in urls[:max_pages]:
+            try:
+                content = await scrape_url(url, max_content_length=5000)
+                if content and len(content) > 50:
+                    parts.append(f"[{url}]\n{content[:3000]}")
+                if delay > 0:
+                    await asyncio.sleep(delay)
+            except Exception as e:
+                logger.debug(f"Scrape failed for {url}: {e}")
+        return "\n\n".join(parts)
+
+    async def _extract_search_urls(
+        self, name: str, entity_type: str,
+    ) -> list[str]:
+        try:
+            import httpx
+
+            query = f"{name} {entity_type}"
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    "https://api.duckduckgo.com/",
+                    params={
+                        "q": query, "format": "json", "no_html": 1,
+                    },
+                )
+                if resp.status_code != 200:
+                    return []
+                data = resp.json()
+                urls = []
+                abstract_url = data.get("AbstractURL", "")
+                if abstract_url:
+                    urls.append(abstract_url)
+                for topic in data.get("RelatedTopics", [])[:5]:
+                    if isinstance(topic, dict):
+                        url = topic.get("FirstURL", "")
+                        if url and url.startswith("http"):
+                            urls.append(url)
+                return urls
+        except Exception:
+            return []
 
     @staticmethod
     def _parse_enrichment_response(response: str) -> dict[str, Any]:

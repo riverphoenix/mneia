@@ -48,8 +48,16 @@ def _discover_builtins() -> None:
     _register(ChromeHistoryConnector)
 
     from mneia.connectors.audio_transcription import AudioTranscriptionConnector
+    from mneia.connectors.github import GitHubConnector
+    from mneia.connectors.linear import LinearConnector
+    from mneia.connectors.slack import SlackConnector
+    from mneia.connectors.todoist import TodoistConnector
 
     _register(AudioTranscriptionConnector)
+    _register(GitHubConnector)
+    _register(LinearConnector)
+    _register(SlackConnector)
+    _register(TodoistConnector)
 
 
 def _discover_third_party() -> None:

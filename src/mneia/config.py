@@ -33,9 +33,16 @@ class ConnectorConfig(BaseModel):
     last_checkpoint: str | None = None
 
 
+class SafetyConfig(BaseModel):
+    auto_approve_low_risk: bool = True
+    approval_ttl_hours: int = 24
+    blocked_operations: list[str] = Field(default_factory=list)
+
+
 class MneiaConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     connectors: dict[str, ConnectorConfig] = Field(default_factory=dict)
+    safety: SafetyConfig = Field(default_factory=SafetyConfig)
     context_output_dir: str = str(CONTEXT_DIR)
     auto_generate_context: bool = True
     context_regenerate_interval_minutes: int = 30

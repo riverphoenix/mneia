@@ -6,8 +6,10 @@ from typing import Any
 
 from mneia.config import MneiaConfig
 from mneia.core.llm import LLMClient
+from mneia.memory.embeddings import EmbeddingClient
 from mneia.memory.graph import KnowledgeGraph
 from mneia.memory.store import MemoryStore, StoredDocument
+from mneia.memory.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +39,26 @@ class ConversationResult:
 
 
 class ConversationEngine:
-    def __init__(self, config: MneiaConfig) -> None:
+    def __init__(
+        self,
+        config: MneiaConfig,
+        vector_store: VectorStore | None = None,
+        embedding_client: EmbeddingClient | None = None,
+    ) -> None:
         self.config = config
         self._store = MemoryStore()
         self._graph = KnowledgeGraph()
         self._llm = LLMClient(config.llm)
+        self._vector_store = vector_store
+        self._embedding_client = embedding_client
         self._history: list[ConversationTurn] = []
 
     async def ask(self, question: str, source_filter: str | None = None) -> ConversationResult:
-        doc_results = await self._store.search(question, limit=5)
+        fts_results = await self._store.search(question, limit=5)
+
+        vector_results = await self._vector_search(question, n_results=5)
+
+        doc_results = self._merge_results(fts_results, vector_results)
 
         graph_context = self._get_graph_context(question)
 
@@ -66,7 +79,8 @@ class ConversationEngine:
             "You are mneia, a personal knowledge assistant. "
             "You help the user understand their own knowledge, notes, meetings, and work.\n\n"
             "RULES:\n"
-            "- Answer based on the provided context from the user's documents and knowledge graph.\n"
+            "- Answer based on the provided context from the user's documents "
+            "and knowledge graph.\n"
             "- Be concise, direct, and helpful.\n"
             "- If the context doesn't contain relevant information, say so honestly.\n"
             "- Reference specific documents by title when citing information.\n"
@@ -102,6 +116,48 @@ class ConversationEngine:
             citations=citations,
             suggested_followups=followups,
         )
+
+    async def _vector_search(self, query: str, n_results: int = 5) -> list[StoredDocument]:
+        if not self._vector_store or not self._vector_store.available or not self._embedding_client:
+            return []
+        try:
+            emb = await self._embedding_client.embed_for_search(query)
+            if not emb:
+                return []
+            hits = await self._vector_store.search_documents(emb, n_results=n_results)
+            docs = []
+            for hit in hits:
+                try:
+                    doc_id = int(hit["id"])
+                    doc = await self._store.get_by_id(doc_id)
+                    if doc:
+                        docs.append(doc)
+                except (ValueError, TypeError):
+                    pass
+            return docs
+        except Exception:
+            logger.debug("Vector search failed", exc_info=True)
+            return []
+
+    @staticmethod
+    def _merge_results(
+        fts_results: list[StoredDocument],
+        vector_results: list[StoredDocument],
+    ) -> list[StoredDocument]:
+        seen_ids: set[int] = set()
+        merged: list[StoredDocument] = []
+
+        for doc in fts_results:
+            if doc.id not in seen_ids:
+                seen_ids.add(doc.id)
+                merged.append(doc)
+
+        for doc in vector_results:
+            if doc.id not in seen_ids:
+                seen_ids.add(doc.id)
+                merged.append(doc)
+
+        return merged[:10]
 
     def clear_history(self) -> None:
         self._history.clear()

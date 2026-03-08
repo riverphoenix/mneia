@@ -863,6 +863,92 @@ def graph_export(
     console.print_json(json_mod.dumps(data, indent=2, default=str))
 
 
+# --- Permission commands ---
+
+permission_app = typer.Typer(help="Manage operation permissions")
+app.add_typer(permission_app, name="permission")
+
+
+@permission_app.command("grant")
+def permission_grant(
+    operation: str,
+    ttl: int = typer.Option(24, "--ttl", help="Hours until expiry"),
+) -> None:
+    """Grant permission for a risky operation."""
+    from mneia.core.permissions_db import PermissionsDB
+    from mneia.core.safety import get_permission
+
+    perm = get_permission(operation)
+    if not perm:
+        console.print(f"[red]Unknown operation: {operation}[/red]")
+        from mneia.core.safety import list_permissions
+        ops = [p.operation for p in list_permissions()]
+        console.print(f"[dim]Available: {', '.join(ops)}[/dim]")
+        raise typer.Exit(1)
+
+    db = PermissionsDB()
+    db.approve(operation, ttl_hours=ttl)
+    console.print(
+        f"[green]Granted '{operation}' for {ttl}h "
+        f"(risk: {perm.risk_level.value})[/green]"
+    )
+
+
+@permission_app.command("revoke")
+def permission_revoke(operation: str) -> None:
+    """Revoke a previously granted permission."""
+    from mneia.core.permissions_db import PermissionsDB
+
+    db = PermissionsDB()
+    db.revoke(operation)
+    console.print(f"[yellow]Revoked: {operation}[/yellow]")
+
+
+@permission_app.command("list")
+def permission_list() -> None:
+    """List all permissions and their approval status."""
+    from mneia.core.permissions_db import PermissionsDB
+    from mneia.core.safety import list_permissions
+
+    db = PermissionsDB()
+    approvals = {a["operation"]: a for a in db.list_approvals()}
+    perms = list_permissions()
+
+    table = Table(title="Permissions")
+    table.add_column("Operation", style="cyan")
+    table.add_column("Risk")
+    table.add_column("Status")
+    table.add_column("Expires")
+
+    for perm in perms:
+        risk_colors = {
+            "low": "green",
+            "medium": "yellow",
+            "high": "red",
+            "critical": "bold red",
+        }
+        color = risk_colors.get(perm.risk_level.value, "white")
+        risk_text = f"[{color}]{perm.risk_level.value}[/{color}]"
+
+        approval = approvals.get(perm.operation)
+        if perm.risk_level.value == "low":
+            status = "[green]auto-approved[/green]"
+            expires = "-"
+        elif approval:
+            status = "[green]granted[/green]"
+            exp = approval.get("expires_at", "")
+            expires = exp[:19] if exp else "never"
+        else:
+            status = "[dim]not granted[/dim]"
+            expires = "-"
+
+        table.add_row(
+            perm.operation, risk_text, status, expires,
+        )
+
+    console.print(table)
+
+
 # --- Marketplace commands ---
 
 marketplace_app = typer.Typer(help="Browse and install connectors")

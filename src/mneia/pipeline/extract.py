@@ -4,20 +4,29 @@ import logging
 from typing import Any
 
 from mneia.core.llm import LLMClient
+from mneia.memory.embeddings import EmbeddingClient
 from mneia.memory.graph import GraphEdge, GraphNode, KnowledgeGraph
 from mneia.memory.store import Entity, MemoryStore, StoredDocument
+from mneia.memory.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_SYSTEM_PROMPT = """You extract structured entities from personal documents.
-Return JSON with exactly this schema:
-{"entities": [{"name": "...", "type": "person|project|topic|decision|belief|meeting|tool|organization", "description": "brief description"}], "relationships": [{"source": "entity name", "target": "entity name", "relation": "works_with|discussed_in|decided_on|related_to|part_of|uses|manages|reports_to|met_with"}]}
-Rules:
-- Only extract clearly stated facts. Do not infer or hallucinate.
-- Names should be proper nouns or specific identifiers.
-- Keep descriptions under 30 words.
-- Limit to the 10 most important entities per document.
-- Relationships must reference entities you extracted."""
+EXTRACTION_SYSTEM_PROMPT = (
+    "You extract structured entities from personal documents.\n"
+    "Return JSON with exactly this schema:\n"
+    '{"entities": [{"name": "...", '
+    '"type": "person|project|topic|decision|belief|meeting|tool|organization", '
+    '"description": "brief description"}], '
+    '"relationships": [{"source": "entity name", "target": "entity name", '
+    '"relation": "works_with|discussed_in|decided_on|related_to|part_of|'
+    'uses|manages|reports_to|met_with"}]}\n'
+    "Rules:\n"
+    "- Only extract clearly stated facts. Do not infer or hallucinate.\n"
+    "- Names should be proper nouns or specific identifiers.\n"
+    "- Keep descriptions under 30 words.\n"
+    "- Limit to the 10 most important entities per document.\n"
+    "- Relationships must reference entities you extracted."
+)
 
 
 def _make_node_id(name: str, entity_type: str) -> str:
@@ -56,6 +65,8 @@ async def extract_and_store(
     llm: LLMClient,
     store: MemoryStore,
     graph: KnowledgeGraph,
+    vector_store: VectorStore | None = None,
+    embedding_client: EmbeddingClient | None = None,
 ) -> dict[str, int]:
     result = await extract_entities(doc, llm)
     entities_stored = 0
@@ -88,6 +99,23 @@ async def extract_and_store(
             name=name,
             properties={"description": desc, "source": doc.source, "doc_id": doc.id},
         ))
+
+        if vector_store and vector_store.available and embedding_client:
+            try:
+                emb = await embedding_client.embed_entity(name, etype, desc)
+                if emb:
+                    await vector_store.add_entity(
+                        entity_id=node_id,
+                        embedding=emb,
+                        text=f"{name} ({etype}): {desc}",
+                        metadata={
+                            "name": name,
+                            "entity_type": etype,
+                            "source": doc.source,
+                        },
+                    )
+            except Exception as e:
+                logger.debug(f"Entity embedding failed for {name}: {e}")
 
     for rel in result.get("relationships", []):
         src = rel.get("source", "").strip()

@@ -29,6 +29,8 @@ class LLMClient:
     async def embed(self, text: str) -> list[float]:
         if self.config.provider == "ollama":
             return await self._ollama_embed(text)
+        elif self.config.provider == "openai":
+            return await self._openai_embed(text)
         raise NotImplementedError(f"Embeddings not implemented for {self.config.provider}")
 
     async def _ollama_generate(self, prompt: str, system: str, json_mode: bool) -> str:
@@ -104,6 +106,44 @@ class LLMClient:
         resp = await self._client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
+
+    async def _openai_embed(self, text: str) -> list[float]:
+        url = "https://api.openai.com/v1/embeddings"
+        headers = {
+            "Authorization": f"Bearer {self.config.openai_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.config.embedding_model,
+            "input": text,
+        }
+        resp = await self._client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        return resp.json()["data"][0]["embedding"]
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if self.config.provider == "openai":
+            return await self._openai_embed_batch(texts)
+        results = []
+        for text in texts:
+            results.append(await self.embed(text))
+        return results
+
+    async def _openai_embed_batch(self, texts: list[str]) -> list[list[float]]:
+        url = "https://api.openai.com/v1/embeddings"
+        headers = {
+            "Authorization": f"Bearer {self.config.openai_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.config.embedding_model,
+            "input": texts,
+        }
+        resp = await self._client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()["data"]
+        data.sort(key=lambda x: x["index"])
+        return [item["embedding"] for item in data]
 
     async def generate_json(self, prompt: str, system: str = "") -> dict[str, Any]:
         response = await self.generate(prompt, system, json_mode=True)

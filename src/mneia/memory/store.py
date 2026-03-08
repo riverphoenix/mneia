@@ -216,6 +216,15 @@ class MemoryStore:
         finally:
             conn.close()
 
+    async def get_by_id(self, doc_id: int) -> StoredDocument | None:
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,))
+            row = cursor.fetchone()
+            return self._row_to_doc(row) if row else None
+        finally:
+            conn.close()
+
     async def get_recent(self, limit: int = 10, source: str | None = None) -> list[StoredDocument]:
         conn = self._get_conn()
         try:

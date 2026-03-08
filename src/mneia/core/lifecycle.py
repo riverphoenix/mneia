@@ -85,11 +85,25 @@ class AgentManager:
         from mneia.agents.meta import MetaAgent
         from mneia.agents.worker import WorkerAgent
         from mneia.connectors import create_connector
+        from mneia.core.llm import LLMClient
+        from mneia.memory.embeddings import EmbeddingClient
         from mneia.memory.graph import KnowledgeGraph
         from mneia.memory.store import MemoryStore
+        from mneia.memory.vector_store import VectorStore
 
         store = MemoryStore()
         graph = KnowledgeGraph()
+        vector_store = VectorStore()
+        embedding_client = EmbeddingClient(LLMClient(self.config.llm))
+
+        if vector_store.available:
+            await embedding_client.check_availability()
+            if embedding_client.available:
+                logger.info("Vector search enabled")
+            else:
+                logger.info("Embedding service unavailable — vector search disabled")
+        else:
+            logger.info("ChromaDB not installed — vector search disabled")
 
         for name, conn_config in self.config.connectors.items():
             if not conn_config.enabled:
@@ -112,6 +126,8 @@ class AgentManager:
                 connector=connector,
                 config=self.config,
                 connector_config=conn_config,
+                vector_store=vector_store,
+                embedding_client=embedding_client,
             )
             self._agents[agent.name] = agent
             self._tasks[agent.name] = asyncio.create_task(
@@ -125,6 +141,8 @@ class AgentManager:
             config=self.config,
             store=store,
             graph=graph,
+            vector_store=vector_store,
+            embedding_client=embedding_client,
         )
         self._agents[worker.name] = worker
         self._tasks[worker.name] = asyncio.create_task(

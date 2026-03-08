@@ -31,6 +31,8 @@ class ObsidianConnector(BaseConnector):
         poll_interval_seconds=60,
         required_config=["vault_path"],
         optional_config=["exclude_folders", "include_extensions"],
+        watch_paths_config_key="vault_path",
+        watch_extensions=[".md"],
     )
 
     def __init__(self) -> None:
@@ -127,6 +129,73 @@ class ObsidianConnector(BaseConnector):
                 timestamp=modified,
                 metadata=metadata,
                 url=f"obsidian://open?vault={self._vault_path.name}&file={relative}",
+            )
+
+    async def fetch_changed(
+        self, changed_paths: list[Path],
+    ) -> AsyncIterator[RawDocument]:
+        if not self._vault_path:
+            return
+
+        for file_path in changed_paths:
+            if not file_path.is_file():
+                continue
+            if file_path.suffix not in self._include_extensions:
+                continue
+            if self._is_excluded(file_path):
+                continue
+
+            try:
+                content = file_path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, PermissionError):
+                logger.warning(f"Could not read: {file_path}")
+                continue
+
+            relative = file_path.relative_to(self._vault_path)
+            source_id = hashlib.md5(str(relative).encode()).hexdigest()
+
+            title = file_path.stem
+            frontmatter, body = self._parse_frontmatter(content)
+            if "title" in frontmatter:
+                title = frontmatter["title"]
+            elif body:
+                heading = self._extract_first_heading(body)
+                if heading:
+                    title = heading
+            else:
+                heading = self._extract_first_heading(content)
+                if heading:
+                    title = heading
+
+            stat = file_path.stat()
+            modified = datetime.fromtimestamp(stat.st_mtime)
+
+            metadata: dict[str, Any] = {
+                "relative_path": str(relative),
+                "folder": str(relative.parent),
+                "extension": file_path.suffix,
+            }
+            if frontmatter:
+                metadata["frontmatter"] = frontmatter
+            tags = self._extract_tags(content)
+            if tags:
+                metadata["tags"] = tags
+            wikilinks = self._extract_wikilinks(content)
+            if wikilinks:
+                metadata["wikilinks"] = wikilinks
+
+            yield RawDocument(
+                source="obsidian",
+                source_id=source_id,
+                content=body or content,
+                content_type="note",
+                title=title,
+                timestamp=modified,
+                metadata=metadata,
+                url=(
+                    f"obsidian://open?vault="
+                    f"{self._vault_path.name}&file={relative}"
+                ),
             )
 
     async def health_check(self) -> bool:

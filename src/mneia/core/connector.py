@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 
@@ -26,6 +27,8 @@ class ConnectorManifest:
     poll_interval_seconds: int = 300
     required_config: list[str] = field(default_factory=list)
     optional_config: list[str] = field(default_factory=list)
+    watch_paths_config_key: str | None = None
+    watch_extensions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -55,6 +58,22 @@ class BaseConnector(ABC):
     @abstractmethod
     async def health_check(self) -> bool:
         ...
+
+    async def fetch_changed(
+        self, changed_paths: list[Path],
+    ) -> AsyncIterator[RawDocument]:
+        """Process specific changed files. Default: falls back to fetch_since."""
+        async for doc in self.fetch_since(None):
+            yield doc
+
+    def get_watch_path(self, config: dict[str, Any]) -> Path | None:
+        """Return the path to watch for changes, or None if not watchable."""
+        key = self.manifest.watch_paths_config_key
+        if key and key in config:
+            p = Path(config[key]).expanduser().resolve()
+            if p.exists() and p.is_dir():
+                return p
+        return None
 
     def interactive_setup(self) -> dict[str, Any]:
         import typer

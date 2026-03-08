@@ -7,8 +7,10 @@ from typing import Any
 from mneia.config import MneiaConfig
 from mneia.core.agent import AgentResult, AgentState, BaseAgent
 from mneia.core.llm import LLMClient
+from mneia.memory.embeddings import EmbeddingClient
 from mneia.memory.graph import KnowledgeGraph
 from mneia.memory.store import MemoryStore
+from mneia.memory.vector_store import VectorStore
 from mneia.pipeline.extract import extract_and_store
 
 logger = logging.getLogger(__name__)
@@ -21,11 +23,15 @@ class WorkerAgent(BaseAgent):
         config: MneiaConfig,
         store: MemoryStore | None = None,
         graph: KnowledgeGraph | None = None,
+        vector_store: VectorStore | None = None,
+        embedding_client: EmbeddingClient | None = None,
     ) -> None:
         super().__init__(name=name, description="Entity extraction and association worker")
         self._config = config
         self._store = store or MemoryStore()
         self._graph = graph or KnowledgeGraph()
+        self._vector_store = vector_store
+        self._embedding_client = embedding_client
         self._stop_event = asyncio.Event()
         self._total_entities = 0
         self._total_relationships = 0
@@ -73,7 +79,11 @@ class WorkerAgent(BaseAgent):
         processed = 0
         for doc in docs:
             try:
-                result = await extract_and_store(doc, llm, self._store, self._graph)
+                result = await extract_and_store(
+                    doc, llm, self._store, self._graph,
+                    vector_store=self._vector_store,
+                    embedding_client=self._embedding_client,
+                )
                 self._total_entities += result["entities"]
                 self._total_relationships += result["relationships"]
                 self._docs_processed += 1

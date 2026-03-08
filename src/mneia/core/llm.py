@@ -11,12 +11,70 @@ from mneia.config import LLMConfig
 logger = logging.getLogger(__name__)
 
 
+class CircuitBreaker:
+    def __init__(
+        self, failure_threshold: int = 5, reset_timeout: float = 300,
+    ) -> None:
+        self._failure_count = 0
+        self._failure_threshold = failure_threshold
+        self._reset_timeout = reset_timeout
+        self._last_failure_time: float = 0
+        self._open = False
+
+    @property
+    def is_open(self) -> bool:
+        if self._open:
+            import time
+
+            elapsed = time.monotonic() - self._last_failure_time
+            if elapsed >= self._reset_timeout:
+                self._open = False
+                self._failure_count = 0
+                logger.info("Circuit breaker reset (half-open)")
+                return False
+        return self._open
+
+    def record_failure(self) -> None:
+        import time
+
+        self._failure_count += 1
+        self._last_failure_time = time.monotonic()
+        if self._failure_count >= self._failure_threshold:
+            self._open = True
+            logger.warning(
+                f"Circuit breaker opened after {self._failure_count} "
+                f"failures, pausing for {self._reset_timeout}s"
+            )
+
+    def record_success(self) -> None:
+        self._failure_count = 0
+        self._open = False
+
+
 class LLMClient:
     def __init__(self, config: LLMConfig) -> None:
         self.config = config
         self._client = httpx.AsyncClient(timeout=120)
+        self._circuit_breaker = CircuitBreaker()
 
-    async def generate(self, prompt: str, system: str = "", json_mode: bool = False) -> str:
+    async def generate(
+        self, prompt: str, system: str = "", json_mode: bool = False,
+    ) -> str:
+        if self._circuit_breaker.is_open:
+            raise RuntimeError(
+                "LLM circuit breaker is open — service unavailable"
+            )
+        try:
+            result = await self._do_generate(prompt, system, json_mode)
+            self._circuit_breaker.record_success()
+            return result
+        except Exception:
+            self._circuit_breaker.record_failure()
+            raise
+
+    async def _do_generate(
+        self, prompt: str, system: str, json_mode: bool,
+    ) -> str:
         if self.config.provider == "ollama":
             return await self._ollama_generate(prompt, system, json_mode)
         elif self.config.provider == "anthropic":

@@ -191,14 +191,32 @@ class AgentManager:
             )
             logger.info("Started context auto-regeneration watcher")
 
-    async def _run_agent(self, agent: BaseAgent) -> None:
-        try:
-            await agent.run()
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            logger.exception(f"Agent {agent.name} crashed")
-            agent._state = AgentState.ERROR
+    async def _run_agent(
+        self, agent: BaseAgent, max_restarts: int = 3,
+    ) -> None:
+        restarts = 0
+        backoff = 5.0
+        while True:
+            try:
+                await agent.run()
+                break
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                restarts += 1
+                logger.exception(
+                    f"Agent {agent.name} crashed "
+                    f"(restart {restarts}/{max_restarts})"
+                )
+                if restarts >= max_restarts:
+                    logger.error(
+                        f"Agent {agent.name} exceeded max restarts"
+                    )
+                    agent._state = AgentState.ERROR
+                    break
+                agent._state = AgentState.IDLE
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 60)
 
     async def _stop_agents(self) -> None:
         for name, agent in self._agents.items():

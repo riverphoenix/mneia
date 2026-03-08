@@ -44,6 +44,7 @@ class ConversationEngine:
         config: MneiaConfig,
         vector_store: VectorStore | None = None,
         embedding_client: EmbeddingClient | None = None,
+        session_manager: Any | None = None,
     ) -> None:
         self.config = config
         self._store = MemoryStore()
@@ -51,6 +52,7 @@ class ConversationEngine:
         self._llm = LLMClient(config.llm)
         self._vector_store = vector_store
         self._embedding_client = embedding_client
+        self._session_manager = session_manager
         self._history: list[ConversationTurn] = []
 
     async def ask(self, question: str, source_filter: str | None = None) -> ConversationResult:
@@ -75,7 +77,7 @@ class ConversationEngine:
 
         history_block = self._format_history()
 
-        system_prompt = (
+        system_parts = [
             "You are mneia, a personal knowledge assistant. "
             "You help the user understand their own knowledge, notes, meetings, and work.\n\n"
             "RULES:\n"
@@ -88,7 +90,14 @@ class ConversationEngine:
             "- At the end of your response, suggest 2-3 follow-up questions the user could ask, "
             "prefixed with 'You could also ask:'\n"
             "- If the user's question is ambiguous, ask a clarifying question instead of guessing."
-        )
+        ]
+
+        if self._session_manager:
+            personal = self._session_manager.get_personal_context()
+            if personal:
+                system_parts.append(f"\n\nPersonal context:\n{personal}")
+
+        system_prompt = "\n".join(system_parts)
 
         prompt_parts = []
         if history_block:
@@ -107,6 +116,10 @@ class ConversationEngine:
         self._history.append(ConversationTurn(
             role="assistant", content=clean_answer, citations=citations,
         ))
+
+        if self._session_manager:
+            self._session_manager.record_interaction("user", question)
+            self._session_manager.record_interaction("assistant", clean_answer)
 
         if len(self._history) > MAX_HISTORY_TURNS * 2:
             self._history = self._history[-(MAX_HISTORY_TURNS * 2):]

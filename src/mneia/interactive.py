@@ -249,7 +249,7 @@ class InteractiveSession:
 
         elif cmd == "/connector-start":
             if not args:
-                self._cmd_agent_start_interactive()
+                self._cmd_connector_start_interactive()
             else:
                 self._cmd_connector_start(args)
 
@@ -465,7 +465,7 @@ class InteractiveSession:
         enabled = [n for n, c in self.config.connectors.items() if c.enabled]
         console.print(f"  [dim]Connectors:[/dim] [cyan]{', '.join(enabled) or 'none'}[/cyan]")
 
-    def _cmd_start_daemon(self) -> None:
+    def _cmd_start_daemon(self, connectors: list[str] | None = None) -> None:
         import subprocess
 
         from mneia.config import PID_PATH, SOCKET_PATH
@@ -475,6 +475,9 @@ class InteractiveSession:
             return
 
         python = sys.executable
+        filter_arg = ""
+        if connectors is not None:
+            filter_arg = f", connector_filter={connectors!r}"
         cmd = [
             python, "-c",
             "import asyncio, os; "
@@ -482,7 +485,7 @@ class InteractiveSession:
             "from mneia.config import MneiaConfig; "
             "from mneia.core.lifecycle import AgentManager; "
             "config = MneiaConfig.load(); "
-            "manager = AgentManager(config); "
+            f"manager = AgentManager(config{filter_arg}); "
             "asyncio.run(manager.run())"
         ]
 
@@ -504,11 +507,15 @@ class InteractiveSession:
         time.sleep(1.5)
 
         if SOCKET_PATH.exists():
-            console.print(f"[green]● Daemon started[/green] [dim](PID {proc.pid})[/dim]")
+            console.print(
+                f"[green]● Daemon started[/green] [dim](PID {proc.pid})[/dim]"
+            )
             console.print(f"  [dim]Logs: {log_path}[/dim]")
-            console.print("  [dim]Stop with [cyan]/stop[/cyan] or [cyan]mneia stop[/cyan][/dim]")
         else:
-            console.print("[yellow]Daemon starting... check [cyan]/status[/cyan] in a moment.[/yellow]")
+            console.print(
+                "[yellow]Daemon starting... "
+                "check [cyan]/status[/cyan] in a moment.[/yellow]"
+            )
 
     def _cmd_stop_daemon(self) -> None:
         from mneia.config import PID_PATH
@@ -951,21 +958,35 @@ class InteractiveSession:
         from mneia.config import SOCKET_PATH
 
         if SOCKET_PATH.exists():
-            console.print("  [dim]Daemon already running.[/dim]")
-            console.print("  [dim]To start an agent: /start <agent_name>[/dim]")
-            console.print("  [dim]To start all: /start all[/dim]")
+            console.print("  [dim]Daemon is running. Manage connectors:[/dim]\n")
+            self._cmd_connector_start_interactive()
             return
 
-        console.print("\n  [bold]What would you like to start?[/bold]\n")
-        console.print("  [1] Daemon (all agents)")
-        console.print("  [2] Daemon (choose agents)")
+        enabled = [
+            n for n, c in self.config.connectors.items() if c.enabled
+        ]
+
+        console.print("\n  [bold]Start mneia daemon[/bold]\n")
+        console.print("  [1] Start with all connectors")
+        console.print("  [2] Start core only, then choose connectors")
         console.print()
         choice = input("  Choice: ").strip()
 
         if choice == "1":
             self._cmd_start_daemon()
         elif choice == "2":
-            self._cmd_agent_start_interactive()
+            self._cmd_start_daemon(connectors=[])
+            from mneia.config import SOCKET_PATH as SOCK
+            if not SOCK.exists():
+                return
+            if not enabled:
+                console.print(
+                    "\n  [dim]No connectors enabled. "
+                    "Use /connector-setup to enable one.[/dim]"
+                )
+                return
+            console.print()
+            self._cmd_connector_start_interactive()
         else:
             console.print("[dim]Cancelled.[/dim]")
 
@@ -985,24 +1006,39 @@ class InteractiveSession:
             console.print("[dim]Cannot reach daemon.[/dim]")
             return
 
-        running = [a for a in agents if a["state"] == "running"]
-        if not running:
-            console.print("  [dim]No agents running. Stop daemon?[/dim]")
-            if input("  Stop daemon? (y/n): ").strip().lower() == "y":
-                self._cmd_stop_daemon()
-            return
+        connectors = [
+            a for a in agents
+            if a["state"] == "running" and a["name"].startswith("listener-")
+        ]
+        core = [
+            a for a in agents
+            if a["state"] == "running" and not a["name"].startswith("listener-")
+        ]
 
         console.print("\n  [bold]What would you like to stop?[/bold]\n")
         console.print("  [0] Stop daemon (everything)")
-        for i, a in enumerate(running, 1):
-            console.print(f"  [{i}] {a['name']}")
+
+        if connectors:
+            console.print()
+            console.print("  [bold dim]Connectors:[/bold dim]")
+            for i, a in enumerate(connectors, 1):
+                label = a["name"].replace("listener-", "")
+                console.print(f"  [{i}] {label}")
+
+        if core:
+            console.print()
+            console.print(
+                f"  [dim]Core agents running: "
+                f"{', '.join(a['name'] for a in core)}[/dim]"
+            )
+
         console.print()
         choice = input("  Choice: ").strip()
 
         if choice == "0":
             self._cmd_stop_daemon()
-        elif choice.isdigit() and 1 <= int(choice) <= len(running):
-            name = running[int(choice) - 1]["name"]
+        elif choice.isdigit() and 1 <= int(choice) <= len(connectors):
+            name = connectors[int(choice) - 1]["name"]
             self._cmd_connector_stop(name)
         else:
             console.print("[dim]Cancelled.[/dim]")
@@ -1013,7 +1049,7 @@ class InteractiveSession:
     def _cmd_stop_all(self) -> None:
         self._cmd_stop_daemon()
 
-    def _cmd_agent_start_interactive(self) -> None:
+    def _cmd_connector_start_interactive(self) -> None:
         from mneia.config import SOCKET_PATH
 
         if not SOCKET_PATH.exists():
@@ -1024,23 +1060,32 @@ class InteractiveSession:
             n for n, c in self.config.connectors.items() if c.enabled
         ]
         if not enabled:
-            console.print("[dim]No connectors enabled. Use /connector-setup first.[/dim]")
+            console.print(
+                "[dim]No connectors enabled. "
+                "Use /connector-setup first.[/dim]"
+            )
             return
 
         from mneia.core.lifecycle import send_command
 
         try:
             result = asyncio.run(send_command("list_agents"))
-            running_names = {a["name"] for a in result.get("agents", []) if a["state"] == "running"}
+            running_names = {
+                a["name"] for a in result.get("agents", [])
+                if a["state"] == "running"
+            }
         except (ConnectionRefusedError, FileNotFoundError, OSError):
             running_names = set()
 
-        not_started = [n for n in enabled if f"listener-{n}" not in running_names]
+        not_started = [
+            n for n in enabled
+            if f"listener-{n}" not in running_names
+        ]
         if not not_started:
-            console.print("[dim]All connector agents are already running.[/dim]")
+            console.print("[dim]All connectors are already running.[/dim]")
             return
 
-        console.print("\n  [bold]Stopped agents:[/bold]\n")
+        console.print("  [bold]Available connectors:[/bold]\n")
         for i, n in enumerate(not_started, 1):
             console.print(f"  [{i}] {n}")
         console.print("  [a] Start all")

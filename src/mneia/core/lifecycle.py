@@ -110,7 +110,7 @@ class AgentManager:
         for name, conn_config in self.config.connectors.items():
             if not conn_config.enabled:
                 continue
-            if self.connector_filter and name not in self.connector_filter:
+            if self.connector_filter is not None and name not in self.connector_filter:
                 continue
 
             connector = create_connector(name)

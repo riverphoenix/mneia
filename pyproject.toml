@@ -8,20 +8,29 @@ version = "0.1.0"
 description = "Autonomous multi-agent personal knowledge system"
 license = "MIT"
 requires-python = ">=3.10"
-authors = [{ name = "Dimitris Sotiriou" }]
+authors = [{ name = "Dimitris Sotiriou", email = "mneia@dsotiriou.dev" }]
 readme = "README.md"
-keywords = ["ai", "agents", "knowledge", "memory", "personal", "cli"]
+keywords = [
+    "ai", "agents", "knowledge", "memory", "personal", "cli",
+    "rag", "knowledge-graph", "llm", "ollama", "obsidian",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Office/Business :: Groupware",
+    "Topic :: Text Processing :: Indexing",
+    "Typing :: Typed",
 ]
 dependencies = [
     "typer[all]>=0.12",
@@ -48,7 +57,8 @@ audio = ["faster-whisper>=1.0", "sounddevice>=0.4"]
 web = ["crawl4ai>=0.4", "playwright>=1.40"]
 vector = ["chromadb>=0.5"]
 mcp = ["mcp>=1.0"]
-all = ["mneia[google,atlassian,notion,audio,web,vector,mcp]"]
+menubar = ["rumps>=0.4"]
+all = ["mneia[google,atlassian,notion,audio,web,vector,mcp,menubar]"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
@@ -59,14 +69,20 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/riverphoenix/mneia"
+Documentation = "https://github.com/riverphoenix/mneia/tree/master/docs"
 Repository = "https://github.com/riverphoenix/mneia"
 Issues = "https://github.com/riverphoenix/mneia/issues"
+Changelog = "https://github.com/riverphoenix/mneia/releases"
 
 [project.scripts]
 mneia = "mneia.cli:main"
+mneia-menubar = "mneia.menubar:run_menubar"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mneia"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/mneia", "README.md", "LICENSE", "docs"]
 
 [tool.ruff]
 target-version = "py310"

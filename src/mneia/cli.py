@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -12,7 +11,7 @@ from rich.table import Table
 from rich.text import Text
 
 from mneia import __version__
-from mneia.config import MNEIA_DIR, MneiaConfig, ensure_dirs
+from mneia.config import MNEIA_DIR, PID_PATH, MneiaConfig, ensure_dirs
 
 app = typer.Typer(
     name="mneia",
@@ -66,9 +65,10 @@ def version() -> None:
 @app.command()
 def start(
     detach: bool = typer.Option(False, "--detach", "-d", help="Run in background"),
-    connectors: Optional[str] = typer.Option(
+    connectors: str | None = typer.Option(
         None, "--connectors", "-c", help="Comma-separated connector names"
     ),
+    all_agents: bool = typer.Option(False, "--all", "-a", help="Start all agents"),
 ) -> None:
     """Start the mneia knowledge daemon."""
     import subprocess
@@ -79,7 +79,7 @@ def start(
     connector_filter = connectors.split(",") if connectors else None
 
     if detach:
-        from mneia.config import MNEIA_DIR, SOCKET_PATH
+        from mneia.config import MNEIA_DIR, PID_PATH, SOCKET_PATH
 
         if SOCKET_PATH.exists():
             console.print("[yellow]Daemon already running.[/yellow]")
@@ -91,7 +91,9 @@ def start(
             filter_arg = f", connector_filter={connector_filter!r}"
         cmd = [
             python, "-c",
-            "import asyncio; from mneia.config import MneiaConfig; "
+            "import asyncio, os; "
+            f"open({str(PID_PATH)!r}, 'w').write(str(os.getpid())); "
+            "from mneia.config import MneiaConfig; "
             "from mneia.core.lifecycle import AgentManager; "
             "config = MneiaConfig.load(); "
             f"manager = AgentManager(config{filter_arg}); "
@@ -101,22 +103,30 @@ def start(
         log_path = MNEIA_DIR / "logs" / "daemon.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = open(str(log_path), "a")
+        devnull = open("/dev/null")
 
         proc = subprocess.Popen(
             cmd,
+            stdin=devnull,
             stdout=log_file,
             stderr=log_file,
             start_new_session=True,
         )
 
+        PID_PATH.write_text(str(proc.pid))
+
         time.sleep(1.5)
 
         if SOCKET_PATH.exists():
-            console.print(f"[green]● Daemon started in background[/green] [dim](PID {proc.pid})[/dim]")
+            console.print(
+                f"[green]● Daemon started[/green] [dim](PID {proc.pid})[/dim]"
+            )
             console.print(f"  [dim]Logs: {log_path}[/dim]")
-            console.print(f"  [dim]Stop with: [cyan]mneia stop[/cyan][/dim]")
+            console.print("  [dim]Stop with: [cyan]mneia stop[/cyan][/dim]")
         else:
-            console.print("[yellow]Daemon starting... check [cyan]mneia status[/cyan] in a moment.[/yellow]")
+            console.print(
+                "[yellow]Daemon starting... check [cyan]mneia status[/cyan].[/yellow]"
+            )
         return
 
     _print_banner()
@@ -133,16 +143,43 @@ def start(
 
 
 @app.command()
-def stop() -> None:
-    """Stop the mneia daemon."""
-    console.print("[yellow]Sending stop signal...[/yellow]")
+def stop(
+    agent_name: str | None = typer.Argument(None, help="Stop specific agent (or omit for daemon)"),
+    all_agents: bool = typer.Option(False, "--all", "-a", help="Stop all agents"),
+) -> None:
+    """Stop the mneia daemon or specific agents."""
     from mneia.core.lifecycle import send_command
 
+    if agent_name and not all_agents:
+        name = f"listener-{agent_name}" if not agent_name.startswith("listener-") else agent_name
+        try:
+            result = asyncio.run(send_command("stop_agent", name=name))
+            if result.get("ok"):
+                console.print(f"[yellow]Stopped agent: {result['stopped']}[/yellow]")
+            elif result.get("error"):
+                console.print(f"[red]{result['error']}[/red]")
+        except (ConnectionRefusedError, FileNotFoundError, OSError):
+            console.print("[red]Daemon is not running.[/red]")
+        return
+
+    console.print("[yellow]Sending stop signal...[/yellow]")
     try:
         asyncio.run(send_command("stop"))
         console.print("[green]mneia stopped.[/green]")
     except (ConnectionRefusedError, FileNotFoundError, OSError):
-        console.print("[red]mneia is not running.[/red]")
+        if PID_PATH.exists():
+            import os
+            import signal as sig
+
+            try:
+                pid = int(PID_PATH.read_text().strip())
+                os.kill(pid, sig.SIGTERM)
+                console.print(f"[green]Sent SIGTERM to PID {pid}.[/green]")
+            except (ProcessLookupError, ValueError):
+                console.print("[dim]Stale PID file removed.[/dim]")
+            PID_PATH.unlink(missing_ok=True)
+        else:
+            console.print("[red]mneia is not running.[/red]")
 
 
 @app.command()
@@ -200,28 +237,7 @@ def config_setup() -> None:
     config = MneiaConfig.load()
 
     console.print(Panel("Welcome to mneia setup!", title="Setup Wizard"))
-
-    provider = typer.prompt(
-        "LLM provider (ollama/anthropic/openai)",
-        default=config.llm.provider,
-    )
-    config.llm.provider = provider
-
-    if provider == "ollama":
-        model = typer.prompt("Ollama model for extraction", default=config.llm.model)
-        config.llm.model = model
-        embed = typer.prompt("Ollama embedding model", default=config.llm.embedding_model)
-        config.llm.embedding_model = embed
-        url = typer.prompt("Ollama base URL", default=config.llm.ollama_base_url)
-        config.llm.ollama_base_url = url
-    elif provider == "anthropic":
-        key = typer.prompt("Anthropic API key", hide_input=True)
-        config.llm.anthropic_api_key = key
-        config.llm.model = "claude-sonnet-4-20250514"
-    elif provider == "openai":
-        key = typer.prompt("OpenAI API key", hide_input=True)
-        config.llm.openai_api_key = key
-        config.llm.model = "gpt-4o-mini"
+    _llm_setup_wizard(config)
 
     context_dir = typer.prompt(
         "Context output directory",
@@ -231,7 +247,142 @@ def config_setup() -> None:
 
     config.save()
     console.print("\n[green]Configuration saved![/green]")
-    console.print("Next: enable a connector with [cyan]mneia connector enable <name>[/cyan]")
+    _show_next_steps(config)
+
+
+@config_app.command("llm")
+def config_llm() -> None:
+    """Configure LLM provider, API keys, and model selection."""
+    ensure_dirs()
+    config = MneiaConfig.load()
+
+    console.print(Panel("LLM Configuration", title="Setup"))
+    _llm_setup_wizard(config)
+    config.save()
+    console.print("\n[green]LLM configuration saved![/green]")
+    console.print(f"  [dim]Provider:[/dim] [cyan]{config.llm.provider}[/cyan]")
+    console.print(f"  [dim]Model:[/dim] [cyan]{config.llm.model}[/cyan]")
+
+
+def _llm_setup_wizard(config: MneiaConfig) -> None:
+    from mneia.core.llm_setup import (
+        EMBEDDING_MODELS,
+        PROVIDER_DISPLAY,
+        get_models_for_provider,
+    )
+
+    console.print("\n[bold]Choose your LLM provider:[/bold]")
+    providers = list(PROVIDER_DISPLAY.items())
+    for i, (key, display) in enumerate(providers, 1):
+        current = " [green](current)[/green]" if key == config.llm.provider else ""
+        console.print(f"  [{i}] {display}{current}")
+
+    choice = typer.prompt(
+        "\nProvider number",
+        default=str(next(
+            i for i, (k, _) in enumerate(providers, 1)
+            if k == config.llm.provider
+        )),
+    )
+    try:
+        provider_key = providers[int(choice) - 1][0]
+    except (ValueError, IndexError):
+        console.print("[red]Invalid choice, keeping current provider.[/red]")
+        return
+
+    config.llm.provider = provider_key
+
+    if provider_key == "ollama":
+        url = typer.prompt("Ollama base URL", default=config.llm.ollama_base_url)
+        config.llm.ollama_base_url = url
+        models = get_models_for_provider("ollama", url)
+        if models:
+            console.print("\n[bold]Available Ollama models:[/bold]")
+            for i, m in enumerate(models, 1):
+                current = " [green](current)[/green]" if m == config.llm.model else ""
+                console.print(f"  [{i}] {m}{current}")
+            model_choice = typer.prompt(
+                "Model number or name", default=config.llm.model,
+            )
+            if model_choice.isdigit() and 1 <= int(model_choice) <= len(models):
+                config.llm.model = models[int(model_choice) - 1]
+            else:
+                config.llm.model = model_choice
+        else:
+            console.print("[yellow]Ollama not reachable. Enter model name manually.[/yellow]")
+            config.llm.model = typer.prompt("Model name", default=config.llm.model)
+        config.llm.embedding_model = typer.prompt(
+            "Embedding model", default=config.llm.embedding_model,
+        )
+    elif provider_key == "anthropic":
+        if config.llm.anthropic_api_key:
+            console.print(
+                "[dim]Key already set. Enter new or press Enter to keep.[/dim]"
+            )
+        key = typer.prompt("Anthropic API key (sk-ant-...)", hide_input=True, default="")
+        if key:
+            config.llm.anthropic_api_key = key
+        models = get_models_for_provider("anthropic")
+        console.print("\n[bold]Available models:[/bold]")
+        for i, m in enumerate(models, 1):
+            console.print(f"  [{i}] {m}")
+        model_choice = typer.prompt("Model number", default="1")
+        if model_choice.isdigit() and 1 <= int(model_choice) <= len(models):
+            config.llm.model = models[int(model_choice) - 1]
+        config.llm.embedding_model = EMBEDDING_MODELS.get("anthropic", config.llm.embedding_model)
+    elif provider_key == "openai":
+        if config.llm.openai_api_key:
+            console.print(
+                "[dim]Key already set. Enter new or press Enter to keep.[/dim]"
+            )
+        key = typer.prompt("OpenAI API key (sk-...)", hide_input=True, default="")
+        if key:
+            config.llm.openai_api_key = key
+        models = get_models_for_provider("openai")
+        console.print("\n[bold]Available models:[/bold]")
+        for i, m in enumerate(models, 1):
+            console.print(f"  [{i}] {m}")
+        model_choice = typer.prompt("Model number", default="1")
+        if model_choice.isdigit() and 1 <= int(model_choice) <= len(models):
+            config.llm.model = models[int(model_choice) - 1]
+        config.llm.embedding_model = EMBEDDING_MODELS.get("openai", config.llm.embedding_model)
+    elif provider_key == "google":
+        if config.llm.google_api_key:
+            console.print(
+                "[dim]Key already set. Enter new or press Enter to keep.[/dim]"
+            )
+        key = typer.prompt("Google API key", hide_input=True, default="")
+        if key:
+            config.llm.google_api_key = key
+        models = get_models_for_provider("google")
+        console.print("\n[bold]Available models:[/bold]")
+        for i, m in enumerate(models, 1):
+            console.print(f"  [{i}] {m}")
+        model_choice = typer.prompt("Model number", default="1")
+        if model_choice.isdigit() and 1 <= int(model_choice) <= len(models):
+            config.llm.model = models[int(model_choice) - 1]
+        config.llm.embedding_model = EMBEDDING_MODELS.get("google", config.llm.embedding_model)
+
+    console.print(
+        f"\n[green]Selected:[/green] [cyan]{config.llm.provider}[/cyan] / "
+        f"[cyan]{config.llm.model}[/cyan]"
+    )
+
+
+def _show_next_steps(config: MneiaConfig) -> None:
+    enabled = [n for n, c in config.connectors.items() if c.enabled]
+    console.print("\n[bold]Next steps:[/bold]")
+    if not enabled:
+        console.print("  1. Enable a connector: [cyan]mneia connector enable <name>[/cyan]")
+        console.print("  2. Set it up: [cyan]mneia connector setup <name>[/cyan]")
+        console.print("  3. Start the daemon: [cyan]mneia start -d[/cyan]")
+    else:
+        console.print(f"  [green]Connectors enabled:[/green] {', '.join(enabled)}")
+        console.print("  1. Start the daemon: [cyan]mneia start -d[/cyan]")
+        console.print("  2. Check status: [cyan]mneia status[/cyan]")
+        console.print("  3. Ask a question: [cyan]mneia ask 'what do I know?'[/cyan]")
+    console.print("  [dim]See all connectors: mneia connector list[/dim]")
+    console.print("  [dim]Interactive mode: just run mneia[/dim]")
 
 
 @config_app.command("reset")
@@ -311,16 +462,39 @@ def connector_disable(name: str) -> None:
 
 @connector_app.command("setup")
 def connector_setup(name: str) -> None:
-    """Run interactive setup for a connector."""
+    """Run interactive setup for a connector with guided instructions."""
     config = MneiaConfig.load()
     from mneia.connectors import create_connector
+    from mneia.core.llm_setup import get_connector_help
 
     connector = create_connector(name)
     if not connector:
         console.print(f"[red]Unknown connector: {name}[/red]")
         raise typer.Exit(1)
 
-    console.print(Panel(f"Setting up [cyan]{name}[/cyan]", title="Connector Setup"))
+    help_info = get_connector_help(name)
+    manifest = connector.manifest
+
+    console.print(Panel(
+        f"Setting up [cyan]{manifest.display_name}[/cyan]",
+        title="Connector Setup",
+    ))
+
+    if help_info:
+        console.print(f"\n  [bold]{manifest.display_name}[/bold]")
+        console.print(f"  [dim]{help_info['description']}[/dim]\n")
+        console.print("  [bold]Prerequisites:[/bold]")
+        for line in help_info["prerequisites"].split("\n"):
+            console.print(f"    {line}")
+        console.print("\n  [bold]What you'll need:[/bold]")
+        console.print(f"    {help_info['setup_help']}\n")
+    else:
+        console.print(f"\n  [dim]{manifest.description}[/dim]")
+        console.print(f"  [dim]Auth: {manifest.auth_type}[/dim]\n")
+        if manifest.required_config:
+            console.print(f"  [bold]Required:[/bold] {', '.join(manifest.required_config)}")
+        if manifest.optional_config:
+            console.print(f"  [dim]Optional: {', '.join(manifest.optional_config)}[/dim]\n")
 
     if name not in config.connectors:
         from mneia.config import ConnectorConfig
@@ -331,7 +505,16 @@ def connector_setup(name: str) -> None:
     config.connectors[name].settings = settings
     config.connectors[name].enabled = True
     config.save()
-    console.print(f"[green]{name} configured and enabled![/green]")
+
+    console.print(f"\n[green]{manifest.display_name} configured and enabled![/green]")
+
+    if help_info:
+        console.print("\n[bold]Next steps:[/bold]")
+        for line in help_info["next_steps"].split("\n"):
+            console.print(f"  {line}")
+    else:
+        console.print("\nNext: [cyan]mneia start -d[/cyan] to begin syncing.")
+    console.print()
 
 
 @connector_app.command("sync")
@@ -500,7 +683,7 @@ def memory_recent(
 
 @memory_app.command("purge")
 def memory_purge(
-    source: Optional[str] = typer.Option(None, "--source", "-s", help="Purge only this source"),
+    source: str | None = typer.Option(None, "--source", "-s", help="Purge only this source"),
     confirm: bool = typer.Option(False, "--confirm", help="Skip confirmation"),
 ) -> None:
     """Clear stored memory."""
@@ -649,7 +832,7 @@ def context_link(target_dir: str) -> None:
 @app.command()
 def ask(
     question: str,
-    source: Optional[str] = typer.Option(None, "--source", "-s", help="Limit to source"),
+    source: str | None = typer.Option(None, "--source", "-s", help="Limit to source"),
 ) -> None:
     """Ask a question about your knowledge (single query with RAG)."""
     from mneia.conversation import ConversationEngine
@@ -776,7 +959,7 @@ def graph_show() -> None:
 
 @graph_app.command("entities")
 def graph_entities(
-    entity_type: Optional[str] = typer.Option(None, "--type", "-t", help="Filter by type"),
+    entity_type: str | None = typer.Option(None, "--type", "-t", help="Filter by type"),
 ) -> None:
     """List entities in the knowledge graph."""
     from mneia.memory.graph import KnowledgeGraph
@@ -1060,6 +1243,56 @@ def agents() -> None:
     run_dashboard()
 
 
+@app.command("agent-stats")
+def agent_stats(
+    agent: str | None = typer.Option(None, "--agent", "-a", help="Filter by agent name"),
+) -> None:
+    """Show agent activity statistics for the last 24 hours."""
+    from datetime import datetime
+
+    from mneia.core.agent_stats import AgentStatsDB
+
+    db = AgentStatsDB()
+    stats = db.get_stats_24h()
+
+    if not stats:
+        console.print("[dim]No agent activity in the last 24 hours.[/dim]")
+        db.close()
+        return
+
+    table = Table(title="Agent Stats (Last 24h)")
+    table.add_column("Agent", style="cyan")
+    table.add_column("Starts", justify="right")
+    table.add_column("Cycles", justify="right")
+    table.add_column("Docs Processed", justify="right", style="green")
+    table.add_column("Errors", justify="right", style="red")
+    table.add_column("Restarts", justify="right", style="yellow")
+
+    for agent_name, events in sorted(stats.items()):
+        if agent and agent not in agent_name:
+            continue
+        table.add_row(
+            agent_name,
+            str(events.get("start", 0)),
+            str(events.get("cycle", 0)),
+            str(events.get("docs_processed", 0)),
+            str(events.get("error", 0)),
+            str(events.get("restart", 0)),
+        )
+
+    console.print(table)
+
+    recent = db.get_recent_events(agent_name=agent, limit=10)
+    if recent:
+        console.print("\n[bold]Recent Events:[/bold]")
+        for ev in recent:
+            ts = datetime.fromtimestamp(ev.timestamp).strftime("%H:%M:%S")
+            details = f" — {ev.details}" if ev.details else ""
+            console.print(f"  [dim]{ts}[/dim] [{ev.agent_name}] {ev.event_type}{details}")
+
+    db.close()
+
+
 # --- Logs & Update ---
 
 
@@ -1110,6 +1343,21 @@ def logs(
                         time.sleep(0.5)
             except KeyboardInterrupt:
                 console.print("\n[dim]Stopped.[/dim]")
+
+
+@app.command()
+def menubar() -> None:
+    """Launch macOS menu bar status icon."""
+    try:
+        from mneia.menubar import run_menubar
+    except ImportError:
+        console.print(
+            "[red]rumps package not installed. "
+            "Install with: pip install 'mneia[menubar]'[/red]"
+        )
+        raise typer.Exit(1)
+
+    run_menubar()
 
 
 @app.command()

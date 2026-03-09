@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
 import sys
 import time
 from typing import Any
@@ -11,10 +10,8 @@ from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from rich.console import Console
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
@@ -37,12 +34,16 @@ SLASH_COMMANDS: dict[str, dict[str, str]] = {
     "/search": {"desc": "Search your knowledge — /search <query>", "alias": ""},
     "/ask": {"desc": "Ask a question with RAG — /ask <question>", "alias": ""},
     "/stats": {"desc": "Show memory statistics", "alias": ""},
+    "/agent-stats": {"desc": "Show agent activity stats (last 24h)", "alias": ""},
     "/recent": {"desc": "Show recently ingested documents", "alias": ""},
     "/connectors": {"desc": "List connectors and their status", "alias": ""},
+    "/connector-setup": {"desc": "Interactive connector setup — /connector-setup <name>", "alias": ""},
     "/sync": {"desc": "Sync a connector — /sync <name>", "alias": ""},
     "/connector-start": {"desc": "Start a connector agent — /connector-start <name>", "alias": ""},
     "/connector-stop": {"desc": "Stop a connector agent — /connector-stop <name>", "alias": ""},
     "/agents": {"desc": "List running agents", "alias": ""},
+    "/start": {"desc": "Start daemon or agents — /start [all|agent_name]", "alias": ""},
+    "/stop": {"desc": "Stop daemon or agents — /stop [all|agent_name]", "alias": ""},
     "/extract": {"desc": "Run entity extraction — /extract [limit]", "alias": ""},
     "/graph": {"desc": "Show knowledge graph summary", "alias": ""},
     "/graph-entities": {"desc": "List entities — /graph-entities [type]", "alias": ""},
@@ -50,8 +51,7 @@ SLASH_COMMANDS: dict[str, dict[str, str]] = {
     "/graph-topic": {"desc": "Show topic info — /graph-topic <name>", "alias": ""},
     "/context": {"desc": "Generate context .md files", "alias": ""},
     "/config": {"desc": "Show current configuration", "alias": ""},
-    "/start": {"desc": "Start the daemon (background)", "alias": ""},
-    "/stop": {"desc": "Stop the daemon", "alias": ""},
+    "/config-llm": {"desc": "Configure LLM provider, API keys, and model", "alias": ""},
     "/logs": {"desc": "Show recent daemon logs — /logs [level]", "alias": ""},
     "/chat": {"desc": "Enter multi-turn chat mode", "alias": ""},
     "/clear": {"desc": "Clear the screen", "alias": ""},
@@ -89,7 +89,7 @@ class InteractiveSession:
     def run(self) -> None:
         console.print(BANNER)
         console.print(f"  [dim]v{__version__} — your personal knowledge agent[/dim]")
-        console.print(f"  [dim]Type [cyan]/help[/cyan] for commands or just ask a question.[/dim]\n")
+        console.print("  [dim]Type [cyan]/help[/cyan] for commands or just ask a question.[/dim]\n")
 
         self._check_ollama_status()
         self._show_quick_status()
@@ -235,6 +235,12 @@ class InteractiveSession:
         elif cmd == "/connectors":
             self._cmd_connectors()
 
+        elif cmd == "/connector-setup":
+            if not args:
+                self._cmd_connector_setup_interactive()
+            else:
+                self._cmd_connector_setup(args)
+
         elif cmd == "/sync":
             if not args:
                 console.print("[yellow]Usage: /sync <connector_name>[/yellow]")
@@ -243,18 +249,37 @@ class InteractiveSession:
 
         elif cmd == "/connector-start":
             if not args:
-                console.print("[yellow]Usage: /connector-start <name>[/yellow]")
+                self._cmd_agent_start_interactive()
             else:
                 self._cmd_connector_start(args)
 
         elif cmd == "/connector-stop":
             if not args:
-                console.print("[yellow]Usage: /connector-stop <name>[/yellow]")
+                self._cmd_agent_stop_interactive()
             else:
                 self._cmd_connector_stop(args)
 
         elif cmd == "/agents":
             self._cmd_agents()
+
+        elif cmd == "/agent-stats":
+            self._cmd_agent_stats()
+
+        elif cmd == "/start":
+            if args and args.lower() == "all":
+                self._cmd_start_all()
+            elif args:
+                self._cmd_connector_start(args)
+            else:
+                self._cmd_start_interactive()
+
+        elif cmd == "/stop":
+            if args and args.lower() == "all":
+                self._cmd_stop_all()
+            elif args:
+                self._cmd_connector_stop(args)
+            else:
+                self._cmd_stop_interactive()
 
         elif cmd == "/extract":
             limit = int(args) if args.isdigit() else 50
@@ -284,11 +309,8 @@ class InteractiveSession:
         elif cmd == "/config":
             self._cmd_config()
 
-        elif cmd == "/start":
-            self._cmd_start_daemon()
-
-        elif cmd == "/stop":
-            self._cmd_stop_daemon()
+        elif cmd == "/config-llm":
+            self._cmd_config_llm()
 
         elif cmd == "/logs":
             self._cmd_logs(args if args else "info")
@@ -444,10 +466,9 @@ class InteractiveSession:
         console.print(f"  [dim]Connectors:[/dim] [cyan]{', '.join(enabled) or 'none'}[/cyan]")
 
     def _cmd_start_daemon(self) -> None:
-        import os
         import subprocess
 
-        from mneia.config import SOCKET_PATH
+        from mneia.config import PID_PATH, SOCKET_PATH
 
         if SOCKET_PATH.exists():
             console.print("[yellow]Daemon already running.[/yellow]")
@@ -456,7 +477,9 @@ class InteractiveSession:
         python = sys.executable
         cmd = [
             python, "-c",
-            "import asyncio; from mneia.config import MneiaConfig; "
+            "import asyncio, os; "
+            f"open({str(PID_PATH)!r}, 'w').write(str(os.getpid())); "
+            "from mneia.config import MneiaConfig; "
             "from mneia.core.lifecycle import AgentManager; "
             "config = MneiaConfig.load(); "
             "manager = AgentManager(config); "
@@ -466,31 +489,48 @@ class InteractiveSession:
         log_path = MNEIA_DIR / "logs" / "daemon.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = open(str(log_path), "a")
+        devnull = open("/dev/null")
 
         proc = subprocess.Popen(
             cmd,
+            stdin=devnull,
             stdout=log_file,
             stderr=log_file,
             start_new_session=True,
         )
+
+        PID_PATH.write_text(str(proc.pid))
 
         time.sleep(1.5)
 
         if SOCKET_PATH.exists():
             console.print(f"[green]● Daemon started[/green] [dim](PID {proc.pid})[/dim]")
             console.print(f"  [dim]Logs: {log_path}[/dim]")
-            console.print(f"  [dim]Stop with [cyan]/stop[/cyan][/dim]")
+            console.print("  [dim]Stop with [cyan]/stop[/cyan] or [cyan]mneia stop[/cyan][/dim]")
         else:
             console.print("[yellow]Daemon starting... check [cyan]/status[/cyan] in a moment.[/yellow]")
 
     def _cmd_stop_daemon(self) -> None:
+        from mneia.config import PID_PATH
         from mneia.core.lifecycle import send_command
 
         try:
             asyncio.run(send_command("stop"))
             console.print("[green]● Daemon stopped[/green]")
         except (ConnectionRefusedError, FileNotFoundError, OSError):
-            console.print("[dim]Daemon is not running.[/dim]")
+            if PID_PATH.exists():
+                import os
+                import signal as sig
+
+                try:
+                    pid = int(PID_PATH.read_text().strip())
+                    os.kill(pid, sig.SIGTERM)
+                    console.print(f"[green]Sent SIGTERM to PID {pid}.[/green]")
+                except (ProcessLookupError, ValueError):
+                    console.print("[dim]Stale PID file cleaned up.[/dim]")
+                PID_PATH.unlink(missing_ok=True)
+            else:
+                console.print("[dim]Daemon is not running.[/dim]")
 
     def _cmd_connector_start(self, name: str) -> None:
         from mneia.core.lifecycle import send_command
@@ -731,6 +771,314 @@ class InteractiveSession:
         finally:
             asyncio.run(engine.close())
             console.print("[dim]  Back to mneia.[/dim]\n")
+
+    def _cmd_agent_stats(self) -> None:
+        from datetime import datetime
+
+        from mneia.core.agent_stats import AgentStatsDB
+
+        db = AgentStatsDB()
+        stats = db.get_stats_24h()
+
+        if not stats:
+            console.print("[dim]No agent activity in the last 24 hours.[/dim]")
+            db.close()
+            return
+
+        for agent_name, events in sorted(stats.items()):
+            starts = events.get("start", 0)
+            cycles = events.get("cycle", 0)
+            errors = events.get("error", 0)
+            restarts = events.get("restart", 0)
+            error_str = f" [red]{errors} errors[/red]" if errors else ""
+            restart_str = f" [yellow]{restarts} restarts[/yellow]" if restarts else ""
+            console.print(
+                f"  [cyan]{agent_name}[/cyan] — "
+                f"{starts} starts, {cycles} cycles{error_str}{restart_str}"
+            )
+
+        recent = db.get_recent_events(limit=5)
+        if recent:
+            console.print("\n  [bold]Recent:[/bold]")
+            for ev in recent:
+                ts = datetime.fromtimestamp(ev.timestamp).strftime("%H:%M:%S")
+                details = f" — {ev.details}" if ev.details else ""
+                console.print(f"    [dim]{ts}[/dim] {ev.agent_name}: {ev.event_type}{details}")
+        db.close()
+
+    def _cmd_connector_setup_interactive(self) -> None:
+        from mneia.connectors import get_available_connectors
+
+        available = get_available_connectors()
+        console.print("\n[bold]Available connectors:[/bold]\n")
+        for i, m in enumerate(available, 1):
+            conn_config = self.config.connectors.get(m.name)
+            status = "[green](enabled)[/green]" if conn_config and conn_config.enabled else ""
+            console.print(f"  [{i:2d}] [cyan]{m.name:<20}[/cyan] {m.display_name} {status}")
+
+        console.print()
+        choice = input("  Choose connector number (or press Enter to cancel): ").strip()
+        if not choice or not choice.isdigit():
+            return
+
+        idx = int(choice) - 1
+        if 0 <= idx < len(available):
+            self._cmd_connector_setup(available[idx].name)
+
+    def _cmd_connector_setup(self, name: str) -> None:
+        from mneia.config import ConnectorConfig
+        from mneia.connectors import create_connector
+        from mneia.core.llm_setup import get_connector_help
+
+        connector = create_connector(name)
+        if not connector:
+            console.print(f"[red]Unknown connector: {name}[/red]")
+            return
+
+        manifest = connector.manifest
+        help_info = get_connector_help(name)
+
+        console.print(f"\n  [bold]{manifest.display_name}[/bold]")
+        if help_info:
+            console.print(f"  [dim]{help_info['description']}[/dim]\n")
+            console.print("  [bold]Prerequisites:[/bold]")
+            for line in help_info["prerequisites"].split("\n"):
+                console.print(f"    {line}")
+            console.print("\n  [bold]What you'll need:[/bold]")
+            console.print(f"    {help_info['setup_help']}\n")
+        else:
+            console.print(f"  [dim]{manifest.description}[/dim]\n")
+
+        if name not in self.config.connectors:
+            self.config.connectors[name] = ConnectorConfig(enabled=True)
+
+        settings = connector.interactive_setup()
+        self.config.connectors[name].settings = settings
+        self.config.connectors[name].enabled = True
+        self.config.save()
+
+        console.print(f"\n  [green]{manifest.display_name} configured and enabled![/green]")
+        if help_info:
+            console.print("\n  [bold]Next steps:[/bold]")
+            for line in help_info["next_steps"].split("\n"):
+                console.print(f"    {line}")
+        else:
+            console.print("  Next: [cyan]/start[/cyan] to begin syncing.")
+        console.print()
+
+    def _cmd_config_llm(self) -> None:
+        from mneia.core.llm_setup import (
+            EMBEDDING_MODELS,
+            PROVIDER_DISPLAY,
+            get_models_for_provider,
+        )
+
+        console.print("\n[bold]Choose LLM provider:[/bold]\n")
+        providers = list(PROVIDER_DISPLAY.items())
+        for i, (key, display) in enumerate(providers, 1):
+            current = " [green](current)[/green]" if key == self.config.llm.provider else ""
+            console.print(f"  [{i}] {display}{current}")
+
+        choice = input("\n  Provider number: ").strip()
+        try:
+            provider_key = providers[int(choice) - 1][0]
+        except (ValueError, IndexError):
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+        self.config.llm.provider = provider_key
+
+        if provider_key == "ollama":
+            url = input(f"  Ollama URL [{self.config.llm.ollama_base_url}]: ").strip()
+            if url:
+                self.config.llm.ollama_base_url = url
+            models = get_models_for_provider("ollama", self.config.llm.ollama_base_url)
+            if models:
+                console.print("\n  [bold]Available models:[/bold]")
+                for i, m in enumerate(models, 1):
+                    current = " [green](current)[/green]" if m == self.config.llm.model else ""
+                    console.print(f"    [{i}] {m}{current}")
+                mc = input("  Model number or name: ").strip()
+                if mc.isdigit() and 1 <= int(mc) <= len(models):
+                    self.config.llm.model = models[int(mc) - 1]
+                elif mc:
+                    self.config.llm.model = mc
+            else:
+                console.print("  [yellow]Ollama not reachable.[/yellow]")
+                mc = input(f"  Model name [{self.config.llm.model}]: ").strip()
+                if mc:
+                    self.config.llm.model = mc
+        else:
+            key_fields = {
+                "anthropic": ("anthropic_api_key", "Anthropic API key (sk-ant-...)"),
+                "openai": ("openai_api_key", "OpenAI API key (sk-...)"),
+                "google": ("google_api_key", "Google API key"),
+            }
+            field, prompt_text = key_fields.get(provider_key, ("", ""))
+            if field:
+                existing = getattr(self.config.llm, field)
+                if existing:
+                    console.print(
+                        "  [dim]Key set. Press Enter to keep or enter new.[/dim]"
+                    )
+                import getpass
+
+                key = getpass.getpass(f"  {prompt_text}: ")
+                if key:
+                    setattr(self.config.llm, field, key)
+
+            models = get_models_for_provider(provider_key)
+            if models:
+                console.print("\n  [bold]Available models:[/bold]")
+                for i, m in enumerate(models, 1):
+                    console.print(f"    [{i}] {m}")
+                mc = input("  Model number: ").strip()
+                if mc.isdigit() and 1 <= int(mc) <= len(models):
+                    self.config.llm.model = models[int(mc) - 1]
+
+            self.config.llm.embedding_model = EMBEDDING_MODELS.get(
+                provider_key, self.config.llm.embedding_model,
+            )
+
+        self.config.save()
+        console.print(
+            f"\n  [green]Saved:[/green] [cyan]{self.config.llm.provider}[/cyan] / "
+            f"[cyan]{self.config.llm.model}[/cyan]\n"
+        )
+        self._ollama_available = True
+
+    def _cmd_start_interactive(self) -> None:
+        from mneia.config import SOCKET_PATH
+
+        if SOCKET_PATH.exists():
+            console.print("  [dim]Daemon already running.[/dim]")
+            console.print("  [dim]To start an agent: /start <agent_name>[/dim]")
+            console.print("  [dim]To start all: /start all[/dim]")
+            return
+
+        console.print("\n  [bold]What would you like to start?[/bold]\n")
+        console.print("  [1] Daemon (all agents)")
+        console.print("  [2] Daemon (choose agents)")
+        console.print()
+        choice = input("  Choice: ").strip()
+
+        if choice == "1":
+            self._cmd_start_daemon()
+        elif choice == "2":
+            self._cmd_agent_start_interactive()
+        else:
+            console.print("[dim]Cancelled.[/dim]")
+
+    def _cmd_stop_interactive(self) -> None:
+        from mneia.config import SOCKET_PATH
+
+        if not SOCKET_PATH.exists():
+            console.print("[dim]Daemon is not running.[/dim]")
+            return
+
+        from mneia.core.lifecycle import send_command
+
+        try:
+            result = asyncio.run(send_command("list_agents"))
+            agents = result.get("agents", [])
+        except (ConnectionRefusedError, FileNotFoundError, OSError):
+            console.print("[dim]Cannot reach daemon.[/dim]")
+            return
+
+        running = [a for a in agents if a["state"] == "running"]
+        if not running:
+            console.print("  [dim]No agents running. Stop daemon?[/dim]")
+            if input("  Stop daemon? (y/n): ").strip().lower() == "y":
+                self._cmd_stop_daemon()
+            return
+
+        console.print("\n  [bold]What would you like to stop?[/bold]\n")
+        console.print("  [0] Stop daemon (everything)")
+        for i, a in enumerate(running, 1):
+            console.print(f"  [{i}] {a['name']}")
+        console.print()
+        choice = input("  Choice: ").strip()
+
+        if choice == "0":
+            self._cmd_stop_daemon()
+        elif choice.isdigit() and 1 <= int(choice) <= len(running):
+            name = running[int(choice) - 1]["name"]
+            self._cmd_connector_stop(name)
+        else:
+            console.print("[dim]Cancelled.[/dim]")
+
+    def _cmd_start_all(self) -> None:
+        self._cmd_start_daemon()
+
+    def _cmd_stop_all(self) -> None:
+        self._cmd_stop_daemon()
+
+    def _cmd_agent_start_interactive(self) -> None:
+        from mneia.config import SOCKET_PATH
+
+        if not SOCKET_PATH.exists():
+            console.print("[dim]Daemon not running. Start it first with /start[/dim]")
+            return
+
+        enabled = [
+            n for n, c in self.config.connectors.items() if c.enabled
+        ]
+        if not enabled:
+            console.print("[dim]No connectors enabled. Use /connector-setup first.[/dim]")
+            return
+
+        from mneia.core.lifecycle import send_command
+
+        try:
+            result = asyncio.run(send_command("list_agents"))
+            running_names = {a["name"] for a in result.get("agents", []) if a["state"] == "running"}
+        except (ConnectionRefusedError, FileNotFoundError, OSError):
+            running_names = set()
+
+        not_started = [n for n in enabled if f"listener-{n}" not in running_names]
+        if not not_started:
+            console.print("[dim]All connector agents are already running.[/dim]")
+            return
+
+        console.print("\n  [bold]Stopped agents:[/bold]\n")
+        for i, n in enumerate(not_started, 1):
+            console.print(f"  [{i}] {n}")
+        console.print("  [a] Start all")
+        console.print()
+        choice = input("  Choice: ").strip()
+
+        if choice.lower() == "a":
+            for n in not_started:
+                self._cmd_connector_start(n)
+        elif choice.isdigit() and 1 <= int(choice) <= len(not_started):
+            self._cmd_connector_start(not_started[int(choice) - 1])
+
+    def _cmd_agent_stop_interactive(self) -> None:
+        from mneia.core.lifecycle import send_command
+
+        try:
+            result = asyncio.run(send_command("list_agents"))
+            running = [a for a in result.get("agents", []) if a["state"] == "running"]
+        except (ConnectionRefusedError, FileNotFoundError, OSError):
+            console.print("[dim]Daemon not running.[/dim]")
+            return
+
+        if not running:
+            console.print("[dim]No agents running.[/dim]")
+            return
+
+        console.print("\n  [bold]Running agents:[/bold]\n")
+        for i, a in enumerate(running, 1):
+            console.print(f"  [{i}] {a['name']}")
+        console.print("  [a] Stop all agents")
+        console.print()
+        choice = input("  Choice: ").strip()
+
+        if choice.lower() == "a":
+            for a in running:
+                self._cmd_connector_stop(a["name"])
+        elif choice.isdigit() and 1 <= int(choice) <= len(running):
+            self._cmd_connector_stop(running[int(choice) - 1]["name"])
 
     def _cmd_logs(self, level: str = "info") -> None:
         from mneia.config import LOGS_DIR

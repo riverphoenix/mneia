@@ -31,3 +31,7 @@ node_modules/
 *.swo
 *~
 PLAN_mneia.md
+.mneia/
+credentials*.json
+*_secret*.json
+*.key

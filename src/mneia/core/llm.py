@@ -81,6 +81,8 @@ class LLMClient:
             return await self._anthropic_generate(prompt, system)
         elif self.config.provider == "openai":
             return await self._openai_generate(prompt, system, json_mode)
+        elif self.config.provider == "google":
+            return await self._google_generate(prompt, system)
         else:
             raise ValueError(f"Unknown LLM provider: {self.config.provider}")
 
@@ -178,6 +180,33 @@ class LLMClient:
         resp = await self._client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
         return resp.json()["data"][0]["embedding"]
+
+    async def _google_generate(self, prompt: str, system: str) -> str:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/"
+            f"models/{self.config.model}:generateContent"
+            f"?key={self.config.google_api_key}"
+        )
+        contents: list[dict[str, Any]] = []
+        if system:
+            contents.append({"role": "user", "parts": [{"text": system}]})
+            contents.append({"role": "model", "parts": [{"text": "Understood."}]})
+        contents.append({"role": "user", "parts": [{"text": prompt}]})
+        payload: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {
+                "temperature": self.config.temperature,
+                "maxOutputTokens": self.config.max_tokens,
+            },
+        }
+        resp = await self._client.post(url, json=payload)
+        resp.raise_for_status()
+        candidates = resp.json().get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if parts:
+                return parts[0].get("text", "")
+        return ""
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         if self.config.provider == "openai":

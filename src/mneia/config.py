@@ -13,6 +13,8 @@ CONTEXT_DIR = MNEIA_DIR / "context"
 TEMPLATES_DIR = MNEIA_DIR / "templates"
 LOGS_DIR = MNEIA_DIR / "logs"
 SOCKET_PATH = MNEIA_DIR / "mneia.sock"
+PID_PATH = MNEIA_DIR / "daemon.pid"
+STATS_DB_PATH = DATA_DIR / "agent_stats.db"
 
 
 class LLMConfig(BaseModel):
@@ -22,6 +24,7 @@ class LLMConfig(BaseModel):
     ollama_base_url: str = "http://localhost:11434"
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    google_api_key: str = ""
     temperature: float = 0.1
     max_tokens: int = 2048
 

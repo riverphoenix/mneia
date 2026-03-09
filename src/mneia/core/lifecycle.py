@@ -6,7 +6,7 @@ import logging
 import signal
 from typing import Any
 
-from mneia.config import SOCKET_PATH, MneiaConfig
+from mneia.config import PID_PATH, SOCKET_PATH, MneiaConfig
 from mneia.core.agent import AgentState, BaseAgent
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,8 @@ class AgentManager:
                 await self._server.wait_closed()
             if SOCKET_PATH.exists():
                 SOCKET_PATH.unlink()
+            if PID_PATH.exists():
+                PID_PATH.unlink(missing_ok=True)
             logger.info("mneia daemon stopped")
 
     def _signal_stop(self) -> None:
@@ -194,6 +196,10 @@ class AgentManager:
     async def _run_agent(
         self, agent: BaseAgent, max_restarts: int = 3,
     ) -> None:
+        from mneia.core.agent_stats import AgentStatsDB
+
+        stats_db = AgentStatsDB()
+        stats_db.record(agent.name, "start")
         restarts = 0
         backoff = 5.0
         while True:
@@ -204,6 +210,7 @@ class AgentManager:
                 break
             except Exception:
                 restarts += 1
+                stats_db.record(agent.name, "error", f"crash #{restarts}")
                 logger.exception(
                     f"Agent {agent.name} crashed "
                     f"(restart {restarts}/{max_restarts})"
@@ -213,10 +220,13 @@ class AgentManager:
                         f"Agent {agent.name} exceeded max restarts"
                     )
                     agent._state = AgentState.ERROR
+                    stats_db.record(agent.name, "stopped", "max restarts exceeded")
                     break
+                stats_db.record(agent.name, "restart", f"attempt {restarts}")
                 agent._state = AgentState.IDLE
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 60)
+        stats_db.close()
 
     async def _stop_agents(self) -> None:
         for name, agent in self._agents.items():

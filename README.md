@@ -20,12 +20,21 @@ Autonomous multi-agent personal knowledge system. mneia connects to your apps (r
 - **Serves** as an MCP server so AI tools can query your knowledge directly
 - **Converses** with you about your knowledge through a CLI/interactive interface
 
+## Install
+
+```bash
+pip install mneia
+```
+
+Or with all optional extras (Google, Slack, audio, vector search, etc.):
+
+```bash
+pip install mneia[all]
+```
+
 ## Quick Start
 
 ```bash
-# Install
-pipx install mneia
-
 # Prerequisites: local LLM via Ollama
 brew install ollama
 ollama pull phi3:mini

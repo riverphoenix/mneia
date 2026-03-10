@@ -111,10 +111,10 @@ def main_callback(
 def version() -> None:
     """Show mneia version."""
     output = get_output()
-    if output.is_json:
-        output.json_result({"version": __version__})
-    else:
-        console.print(f"mneia v{__version__}")
+    output.emit(
+        data={"version": __version__},
+        rich_fn=lambda: console.print(f"mneia v{__version__}"),
+    )
 
 
 @app.command()

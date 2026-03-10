@@ -93,3 +93,58 @@ def test_stop_no_daemon():
     assert result.exit_code == 0
     output = result.output.lower()
     assert any(w in output for w in ["not running", "stopped", "sigterm", "stale"])
+
+
+# --- clig.dev CLI standards ---
+
+
+def test_version_flag():
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "mneia v" in result.output
+
+
+def test_version_json():
+    result = runner.invoke(app, ["--json", "version"])
+    import json
+
+    data = json.loads(result.output)
+    assert "version" in data
+
+
+def test_connector_list_json():
+    result = runner.invoke(app, ["--json", "connector", "list"])
+    import json
+
+    data = json.loads(result.output)
+    assert "connectors" in data
+    assert isinstance(data["connectors"], list)
+
+
+def test_memory_stats_json():
+    result = runner.invoke(app, ["--json", "memory", "stats"])
+    import json
+
+    data = json.loads(result.output)
+    assert "total_documents" in data
+
+
+def test_memory_search_json():
+    result = runner.invoke(app, ["--json", "memory", "search", "xyznonexistent123"])
+    import json
+
+    data = json.loads(result.output)
+    assert "results" in data
+    assert isinstance(data["results"], list)
+
+
+def test_quiet_suppresses_output():
+    result = runner.invoke(app, ["--quiet", "version"])
+    assert result.exit_code == 0
+    assert result.output.strip() == ""
+
+
+def test_no_color_flag():
+    result = runner.invoke(app, ["--no-color", "version"])
+    assert result.exit_code == 0
+    assert "\x1b[" not in result.output

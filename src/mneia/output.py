@@ -83,6 +83,8 @@ class Output:
             self._json_data = {}
         elif force_no_color:
             self._mode = OutputMode.PLAIN
+        else:
+            self._mode = OutputMode.RICH
 
     def print(self, *args: Any, **kwargs: Any) -> None:
         if self._mode == OutputMode.JSON:
@@ -132,7 +134,7 @@ class Output:
     ) -> None:
         if self._mode == OutputMode.JSON:
             self._console.print_json(json.dumps(data))
-        elif rich_fn is not None:
+        elif not self._quiet and rich_fn is not None:
             rich_fn()
 
     def safe_prompt(

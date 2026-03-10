@@ -343,7 +343,7 @@ pytest tests/integration/       # CLI integration tests
 pytest -v                       # All tests with verbose output
 ```
 
-439 tests covering all agents, connectors, pipeline stages, and core infrastructure.
+497 tests covering all agents, connectors, pipeline stages, and core infrastructure.
 
 ## License
 

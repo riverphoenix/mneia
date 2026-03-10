@@ -5,13 +5,13 @@ import sys
 from pathlib import Path
 
 import typer
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 from mneia import __version__
 from mneia.config import MNEIA_DIR, PID_PATH, MneiaConfig, ensure_dirs
+from mneia.output import EXIT_INTERNAL_ERROR, get_output
 
 app = typer.Typer(
     name="mneia",
@@ -20,7 +20,27 @@ app = typer.Typer(
     invoke_without_command=True,
     rich_markup_mode="rich",
 )
-console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        output = get_output()
+        output.print(f"mneia v{__version__}")
+        raise typer.Exit()
+
+
+class _LazyConsole:
+    """Proxy that delegates to the Output layer's Console.
+
+    This ensures all existing console.print() calls respect NO_COLOR,
+    --no-color, and other output configuration without changing 178 call sites.
+    """
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(get_output().console, name)
+
+
+console = _LazyConsole()
 
 BANNER = r"""
                          _
@@ -33,20 +53,51 @@ BANNER = r"""
 
 
 def _print_banner() -> None:
-    console.print(Text(BANNER, style="bold cyan"))
-    console.print(f"  v{__version__} — your personal knowledge agent\n", style="dim")
+    output = get_output()
+    output.print(Text(BANNER, style="bold cyan"))
+    output.print(f"  v{__version__} — your personal knowledge agent\n", style="dim")
 
 
 # --- Main callback: no args = interactive mode ---
 
 
 @app.callback(invoke_without_command=True)
-def main_callback(ctx: typer.Context) -> None:
+def main_callback(
+    ctx: typer.Context,
+    version: bool | None = typer.Option(
+        None, "--version", callback=_version_callback,
+        is_eager=True, help="Show version and exit",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output as JSON",
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", help="Show debug output",
+    ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress non-error output",
+    ),
+    no_input: bool = typer.Option(
+        False, "--no-input", help="Disable interactive prompts",
+    ),
+    no_color: bool = typer.Option(
+        False, "--no-color", help="Disable colored output",
+    ),
+) -> None:
     """Autonomous multi-agent personal knowledge system.
 
     Run with no arguments to enter interactive mode.
     Run with a command (e.g. mneia start) for direct execution.
     """
+    output = get_output()
+    output.configure(
+        json_mode=json_output,
+        verbose=verbose,
+        quiet=quiet,
+        no_input=no_input,
+        no_color=no_color,
+    )
+
     if ctx.invoked_subcommand is None:
         from mneia.interactive import run_interactive
 
@@ -59,7 +110,11 @@ def main_callback(ctx: typer.Context) -> None:
 @app.command()
 def version() -> None:
     """Show mneia version."""
-    console.print(f"mneia v{__version__}")
+    output = get_output()
+    if output.is_json:
+        output.json_result({"version": __version__})
+    else:
+        console.print(f"mneia v{__version__}")
 
 
 @app.command()
@@ -187,20 +242,33 @@ def status() -> None:
     """Show daemon status, agent states, and queue depth."""
     from mneia.core.lifecycle import send_command
 
+    output = get_output()
     try:
         result = asyncio.run(send_command("status"))
         if result.get("running"):
+            if output.is_json:
+                output.json_result(result)
+                return
             console.print(Panel("[green]mneia is running[/green]", title="Status"))
             table = Table(title="Agents")
             table.add_column("Agent", style="cyan")
             table.add_column("State", style="green")
             table.add_column("Docs Processed", justify="right")
             for agent in result.get("agents", []):
-                table.add_row(agent["name"], agent["state"], str(agent.get("docs", 0)))
+                table.add_row(
+                    agent["name"], agent["state"],
+                    str(agent.get("docs", 0)),
+                )
             console.print(table)
         else:
+            if output.is_json:
+                output.json_result({"running": False})
+                return
             console.print("[yellow]mneia is not running.[/yellow]")
     except (ConnectionRefusedError, FileNotFoundError, OSError):
+        if output.is_json:
+            output.json_result({"running": False})
+            return
         console.print("[yellow]mneia is not running.[/yellow]")
 
 
@@ -406,7 +474,21 @@ def connector_list() -> None:
     config = MneiaConfig.load()
     from mneia.connectors import get_available_connectors
 
+    output = get_output()
     available = get_available_connectors()
+
+    if output.is_json:
+        data = []
+        for m in available:
+            cc = config.connectors.get(m.name)
+            data.append({
+                "name": m.name,
+                "display_name": m.display_name,
+                "enabled": bool(cc and cc.enabled),
+                "auth_type": m.auth_type,
+            })
+        output.json_result({"connectors": data})
+        return
 
     table = Table(title="Connectors")
     table.add_column("Name", style="cyan")
@@ -416,8 +498,12 @@ def connector_list() -> None:
 
     for manifest in available:
         conn_config = config.connectors.get(manifest.name)
-        status_text = "[green]enabled[/green]" if conn_config and conn_config.enabled else "[dim]disabled[/dim]"
-        table.add_row(manifest.name, manifest.display_name, status_text, manifest.auth_type)
+        enabled = conn_config and conn_config.enabled
+        status_text = "[green]enabled[/green]" if enabled else "[dim]disabled[/dim]"
+        table.add_row(
+            manifest.name, manifest.display_name,
+            status_text, manifest.auth_type,
+        )
 
     console.print(table)
 
@@ -608,8 +694,13 @@ def memory_stats() -> None:
     """Show memory statistics."""
     from mneia.memory.store import MemoryStore
 
+    output = get_output()
     store = MemoryStore()
     stats = asyncio.run(store.get_stats())
+
+    if output.is_json:
+        output.json_result(stats)
+        return
 
     table = Table(title="Memory Statistics")
     table.add_column("Metric", style="cyan")
@@ -635,8 +726,22 @@ def memory_search(
     """Full-text search across all stored knowledge."""
     from mneia.memory.store import MemoryStore
 
+    output = get_output()
     store = MemoryStore()
     results = asyncio.run(store.search(query, limit=limit))
+
+    if output.is_json:
+        data = [
+            {
+                "title": doc.title,
+                "source": doc.source,
+                "content": doc.content[:500],
+                "timestamp": doc.timestamp,
+            }
+            for doc in results
+        ]
+        output.json_result({"query": query, "results": data})
+        return
 
     if not results:
         console.print("[yellow]No results found.[/yellow]")
@@ -1245,15 +1350,40 @@ def agents() -> None:
 
 @app.command("agent-stats")
 def agent_stats(
-    agent: str | None = typer.Option(None, "--agent", "-a", help="Filter by agent name"),
+    agent: str | None = typer.Option(
+        None, "--agent", "-a", help="Filter by agent name",
+    ),
 ) -> None:
     """Show agent activity statistics for the last 24 hours."""
     from datetime import datetime
 
     from mneia.core.agent_stats import AgentStatsDB
 
+    output = get_output()
     db = AgentStatsDB()
     stats = db.get_stats_24h()
+
+    if output.is_json:
+        filtered = {}
+        for name, events in stats.items():
+            if agent and agent not in name:
+                continue
+            filtered[name] = events
+        recent = db.get_recent_events(agent_name=agent, limit=10)
+        output.json_result({
+            "agents": filtered,
+            "recent_events": [
+                {
+                    "agent": ev.agent_name,
+                    "event": ev.event_type,
+                    "timestamp": ev.timestamp,
+                    "details": ev.details,
+                }
+                for ev in recent
+            ],
+        })
+        db.close()
+        return
 
     if not stats:
         console.print("[dim]No agent activity in the last 24 hours.[/dim]")
@@ -1288,7 +1418,10 @@ def agent_stats(
         for ev in recent:
             ts = datetime.fromtimestamp(ev.timestamp).strftime("%H:%M:%S")
             details = f" — {ev.details}" if ev.details else ""
-            console.print(f"  [dim]{ts}[/dim] [{ev.agent_name}] {ev.event_type}{details}")
+            console.print(
+                f"  [dim]{ts}[/dim] [{ev.agent_name}] "
+                f"{ev.event_type}{details}"
+            )
 
     db.close()
 
@@ -1388,4 +1521,14 @@ def update() -> None:
 
 
 def main() -> None:
-    app()
+    try:
+        app()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        raise SystemExit(0)
+    except Exception as e:
+        output = get_output()
+        output.error(f"Unexpected error: {e}")
+        output.debug("Run with --verbose for full traceback")
+        raise SystemExit(EXIT_INTERNAL_ERROR)

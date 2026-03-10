@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -64,8 +65,44 @@ class MneiaConfig(BaseModel):
     def load(cls) -> MneiaConfig:
         if CONFIG_PATH.exists():
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            return cls.model_validate(data)
-        return cls()
+            config = cls.model_validate(data)
+        else:
+            config = cls()
+        config._apply_env_overrides()
+        return config
+
+    def _apply_env_overrides(self) -> None:
+        env_mappings: dict[str, str] = {
+            "MNEIA_LLM_PROVIDER": "llm.provider",
+            "MNEIA_LLM_MODEL": "llm.model",
+            "MNEIA_LLM_EMBEDDING_MODEL": "llm.embedding_model",
+            "MNEIA_OLLAMA_BASE_URL": "llm.ollama_base_url",
+            "MNEIA_ANTHROPIC_API_KEY": "llm.anthropic_api_key",
+            "MNEIA_OPENAI_API_KEY": "llm.openai_api_key",
+            "MNEIA_GOOGLE_API_KEY": "llm.google_api_key",
+            "MNEIA_LOG_LEVEL": "log_level",
+            "MNEIA_AUTONOMOUS_ENABLED": "autonomous_enabled",
+        }
+        for env_key, config_path in env_mappings.items():
+            val = os.environ.get(env_key)
+            if val is not None:
+                self._set_value_no_save(config_path, val)
+
+    def _set_value_no_save(self, key: str, value: str) -> None:
+        parts = key.split(".")
+        obj: Any = self
+        for part in parts[:-1]:
+            obj = getattr(obj, part)
+        final_key = parts[-1]
+        current = getattr(obj, final_key)
+        if isinstance(current, bool):
+            obj.__dict__[final_key] = value.lower() in ("true", "1", "yes")
+        elif isinstance(current, int):
+            obj.__dict__[final_key] = int(value)
+        elif isinstance(current, float):
+            obj.__dict__[final_key] = float(value)
+        else:
+            obj.__dict__[final_key] = value
 
     def save(self) -> None:
         MNEIA_DIR.mkdir(parents=True, exist_ok=True)

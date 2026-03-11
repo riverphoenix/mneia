@@ -41,8 +41,11 @@ class GoogleDriveConnector(BaseConnector):
         auth_type="oauth2",
         scopes=["https://www.googleapis.com/auth/drive.readonly"],
         poll_interval_seconds=600,
-        required_config=["google_client_id", "google_client_secret"],
-        optional_config=["folder_ids", "max_results", "include_shared"],
+        required_config=[],
+        optional_config=[
+            "google_client_id", "google_client_secret",
+            "folder_ids", "max_results", "include_shared",
+        ],
     )
 
     def __init__(self) -> None:
@@ -57,10 +60,10 @@ class GoogleDriveConnector(BaseConnector):
 
             client_id = config.get("google_client_id", "")
             client_secret = config.get("google_client_secret", "")
-            if not client_id or not client_secret:
-                return False
 
-            creds = get_google_credentials("drive", client_id, client_secret)
+            creds = get_google_credentials(
+                "drive", client_id, client_secret,
+            )
             self._service = build_service("drive", "v3", creds)
 
             folder_ids = config.get("folder_ids", "")

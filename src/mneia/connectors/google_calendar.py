@@ -25,8 +25,11 @@ class GoogleCalendarConnector(BaseConnector):
         auth_type="oauth2",
         scopes=["https://www.googleapis.com/auth/calendar.readonly"],
         poll_interval_seconds=300,
-        required_config=["google_client_id", "google_client_secret"],
-        optional_config=["calendar_ids", "lookback_days"],
+        required_config=[],
+        optional_config=[
+            "google_client_id", "google_client_secret",
+            "calendar_ids", "lookback_days",
+        ],
     )
 
     def __init__(self) -> None:
@@ -40,10 +43,10 @@ class GoogleCalendarConnector(BaseConnector):
 
             client_id = config.get("google_client_id", "")
             client_secret = config.get("google_client_secret", "")
-            if not client_id or not client_secret:
-                return False
 
-            creds = get_google_credentials("calendar", client_id, client_secret)
+            creds = get_google_credentials(
+                "calendar", client_id, client_secret,
+            )
             self._service = build_service("calendar", "v3", creds)
 
             cal_ids = config.get("calendar_ids", "")

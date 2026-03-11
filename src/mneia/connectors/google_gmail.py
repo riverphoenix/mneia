@@ -28,8 +28,11 @@ class GmailConnector(BaseConnector):
         auth_type="oauth2",
         scopes=["https://www.googleapis.com/auth/gmail.readonly"],
         poll_interval_seconds=300,
-        required_config=["google_client_id", "google_client_secret"],
-        optional_config=["max_results", "labels", "query"],
+        required_config=[],
+        optional_config=[
+            "google_client_id", "google_client_secret",
+            "max_results", "labels", "query",
+        ],
     )
 
     def __init__(self) -> None:
@@ -44,10 +47,10 @@ class GmailConnector(BaseConnector):
 
             client_id = config.get("google_client_id", "")
             client_secret = config.get("google_client_secret", "")
-            if not client_id or not client_secret:
-                return False
 
-            creds = get_google_credentials("gmail", client_id, client_secret)
+            creds = get_google_credentials(
+                "gmail", client_id, client_secret,
+            )
             self._service = build_service("gmail", "v1", creds)
 
             max_r = config.get("max_results", "")

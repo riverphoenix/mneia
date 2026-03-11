@@ -406,13 +406,20 @@ def _llm_setup_wizard(config: MneiaConfig) -> None:
         key = typer.prompt("OpenAI API key (sk-...)", hide_input=True, default="")
         if key:
             config.llm.openai_api_key = key
-        models = get_models_for_provider("openai")
+        api_key = config.llm.openai_api_key or ""
+        console.print("[dim]Fetching available models...[/dim]")
+        models = get_models_for_provider("openai", api_key=api_key)
         console.print("\n[bold]Available models:[/bold]")
         for i, m in enumerate(models, 1):
             console.print(f"  [{i}] {m}")
-        model_choice = typer.prompt("Model number", default="1")
+        console.print(f"\n[dim]{len(models)} models available[/dim]")
+        model_choice = typer.prompt("Model number or name", default="1")
         if model_choice.isdigit() and 1 <= int(model_choice) <= len(models):
             config.llm.model = models[int(model_choice) - 1]
+        elif model_choice in models:
+            config.llm.model = model_choice
+        else:
+            config.llm.model = model_choice
         config.llm.embedding_model = EMBEDDING_MODELS.get("openai", config.llm.embedding_model)
     elif provider_key == "google":
         if config.llm.google_api_key:

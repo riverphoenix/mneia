@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -35,17 +36,23 @@ async def test_authenticate_missing_dir(connector, tmp_path):
 
 
 async def test_authenticate_valid_dir(connector, tmp_path):
-    result = await connector.authenticate({"audio_dir": str(tmp_path)})
+    with patch.object(
+        AudioTranscriptionConnector, "_detect_backend", return_value="faster-whisper",
+    ):
+        result = await connector.authenticate({"audio_dir": str(tmp_path)})
     assert result is True
     assert connector._audio_dir == tmp_path
 
 
 async def test_authenticate_with_options(connector, tmp_path):
-    await connector.authenticate({
-        "audio_dir": str(tmp_path),
-        "whisper_model": "small",
-        "language": "fr",
-    })
+    with patch.object(
+        AudioTranscriptionConnector, "_detect_backend", return_value="faster-whisper",
+    ):
+        await connector.authenticate({
+            "audio_dir": str(tmp_path),
+            "whisper_model": "small",
+            "language": "fr",
+        })
     assert connector._whisper_model == "small"
     assert connector._language == "fr"
 

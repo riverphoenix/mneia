@@ -22,6 +22,7 @@ class AgentManager:
         self.connector_filter = connector_filter
         self._agents: dict[str, BaseAgent] = {}
         self._tasks: dict[str, asyncio.Task[Any]] = {}
+        self._failed_connectors: dict[str, str] = {}
         self._running = False
         self._server: asyncio.Server | None = None
 
@@ -61,6 +62,14 @@ class AgentManager:
                     "[yellow]No agents started. Check connector configuration "
                     "with [cyan]mneia connector list[/cyan][/yellow]"
                 )
+
+        if self._failed_connectors:
+            console.print("\n[yellow]Failed to start:[/yellow]")
+            for name, reason in self._failed_connectors.items():
+                console.print(f"  [red]✗ {name}[/red]: {reason}")
+            console.print(
+                "[dim]Run [cyan]mneia connector setup <name>[/cyan] to reconfigure.[/dim]"
+            )
 
         console.print("[dim]Listening on socket. Press Ctrl+C to stop.[/dim]\n")
 
@@ -116,11 +125,20 @@ class AgentManager:
             connector = create_connector(name)
             if not connector:
                 logger.warning(f"Could not create connector: {name}")
+                self._failed_connectors[name] = "Unknown connector type"
                 continue
 
-            authenticated = await connector.authenticate(conn_config.settings)
+            try:
+                authenticated = await connector.authenticate(conn_config.settings)
+            except Exception as exc:
+                logger.warning(f"Connector {name} auth error: {exc}")
+                self._failed_connectors[name] = str(exc)
+                continue
+
             if not authenticated:
-                logger.warning(f"Authentication failed for connector: {name}")
+                reason = getattr(connector, "last_error", "Authentication failed")
+                logger.warning(f"Authentication failed for connector: {name} — {reason}")
+                self._failed_connectors[name] = str(reason)
                 continue
 
             agent = ListenerAgent(

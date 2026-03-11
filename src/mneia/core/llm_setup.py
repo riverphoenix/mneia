@@ -10,13 +10,19 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "claude-3-5-sonnet-20241022",
     ],
     "openai": [
+        "o3",
+        "o3-mini",
+        "o4-mini",
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
         "gpt-4o",
         "gpt-4o-mini",
         "gpt-4-turbo",
-        "gpt-3.5-turbo",
-        "o3-mini",
     ],
     "google": [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
         "gemini-2.0-flash",
         "gemini-2.0-pro",
         "gemini-1.5-flash",
@@ -236,7 +242,38 @@ def list_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
     return []
 
 
-def get_models_for_provider(provider: str, ollama_url: str = "") -> list[str]:
+def list_openai_models(api_key: str) -> list[str]:
+    try:
+        resp = httpx.get(
+            "https://api.openai.com/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            models = resp.json().get("data", [])
+            chat_prefixes = ("gpt-", "o1", "o3", "o4", "chatgpt-")
+            chat_models = [
+                m["id"] for m in models
+                if any(m["id"].startswith(p) for p in chat_prefixes)
+                and "realtime" not in m["id"]
+                and "audio" not in m["id"]
+                and "search" not in m["id"]
+            ]
+            return sorted(chat_models, reverse=True)
+    except Exception:
+        pass
+    return []
+
+
+def get_models_for_provider(
+    provider: str,
+    ollama_url: str = "",
+    api_key: str = "",
+) -> list[str]:
     if provider == "ollama":
         return list_ollama_models(ollama_url or "http://localhost:11434")
+    if provider == "openai" and api_key:
+        live = list_openai_models(api_key)
+        if live:
+            return live
     return PROVIDER_MODELS.get(provider, [])

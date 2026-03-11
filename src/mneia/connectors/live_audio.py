@@ -59,6 +59,7 @@ class LiveAudioConnector(BaseConnector):
         self._chunk_index: int = 0
 
     async def authenticate(self, config: dict[str, Any]) -> bool:
+        self.last_error = ""
         self._audio_device = config.get("audio_device")
         self._whisper_model = config.get("whisper_model", "base")
         self._language = config.get("language", "en")
@@ -67,9 +68,19 @@ class LiveAudioConnector(BaseConnector):
         if chunk_s:
             self._chunk_seconds = int(chunk_s)
 
+        try:
+            import sounddevice  # noqa: F401
+        except ImportError:
+            self.last_error = "sounddevice not installed. Run: pip install 'mneia[audio]'"
+            logger.error(self.last_error)
+            return False
+
         self._backend = detect_backend()
         if self._backend == "none":
-            logger.error("No whisper backend available for transcription")
+            self.last_error = (
+                "No whisper backend found. Install faster-whisper or whisper-cpp"
+            )
+            logger.error(self.last_error)
             return False
 
         return True

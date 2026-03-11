@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import sys
+import types
 from datetime import datetime, timezone
 from unittest.mock import patch
 
 from mneia.connectors.live_audio import LiveAudioConnector
 from mneia.connectors.transcription_engine import detect_backend
+
+_mock_sd = types.ModuleType("sounddevice")
+sys.modules.setdefault("sounddevice", _mock_sd)
 
 
 def test_live_audio_manifest():

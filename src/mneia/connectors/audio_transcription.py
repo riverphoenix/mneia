@@ -42,13 +42,18 @@ class AudioTranscriptionConnector(BaseConnector):
         self._backend: str = "auto"
 
     async def authenticate(self, config: dict[str, Any]) -> bool:
+        self.last_error = ""
         audio_dir = config.get("audio_dir", "")
         if not audio_dir:
+            self.last_error = (
+                "audio_dir not configured. "
+                "Run: mneia connector setup audio_transcription"
+            )
             return False
 
         self._audio_dir = Path(audio_dir)
         if not self._audio_dir.exists():
-            logger.error(f"Audio directory not found: {self._audio_dir}")
+            self.last_error = f"Audio directory not found: {self._audio_dir}"
             return False
 
         self._whisper_model = config.get("whisper_model", "base")
@@ -57,6 +62,12 @@ class AudioTranscriptionConnector(BaseConnector):
 
         if self._backend == "auto":
             self._backend = self._detect_backend()
+
+        if self._backend == "none":
+            self.last_error = (
+                "No whisper backend found. Install faster-whisper or whisper-cpp"
+            )
+            return False
 
         return True
 

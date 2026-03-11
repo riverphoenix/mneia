@@ -737,12 +737,15 @@ class InteractiveSession:
         from mneia.conversation import ConversationEngine
 
         engine = ConversationEngine(self.config)
+        chat_session: PromptSession[str] = PromptSession()
         console.print("[cyan]Chat mode. Type 'exit' to return. History preserved across turns.[/cyan]\n")
 
         try:
             while True:
                 try:
-                    question = input("  you › ").strip()
+                    question = chat_session.prompt(
+                        HTML("<ansigray>  you ›</ansigray> "),
+                    ).strip()
                     if not question:
                         continue
                     if question.lower() in ("exit", "quit", "/exit"):
@@ -934,14 +937,20 @@ class InteractiveSession:
                 if key:
                     setattr(self.config.llm, field, key)
 
-            models = get_models_for_provider(provider_key)
+            api_key = getattr(self.config.llm, field, "") if field else ""
+            console.print("  [dim]Fetching available models...[/dim]")
+            models = get_models_for_provider(
+                provider_key, api_key=api_key or "",
+            )
             if models:
-                console.print("\n  [bold]Available models:[/bold]")
+                console.print(f"\n  [bold]Available models ({len(models)}):[/bold]")
                 for i, m in enumerate(models, 1):
                     console.print(f"    [{i}] {m}")
-                mc = input("  Model number: ").strip()
+                mc = input("  Model number or name: ").strip()
                 if mc.isdigit() and 1 <= int(mc) <= len(models):
                     self.config.llm.model = models[int(mc) - 1]
+                elif mc:
+                    self.config.llm.model = mc
 
             self.config.llm.embedding_model = EMBEDDING_MODELS.get(
                 provider_key, self.config.llm.embedding_model,

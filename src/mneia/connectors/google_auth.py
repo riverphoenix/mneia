@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -90,9 +89,28 @@ def build_service(service_name: str, version: str, credentials: Any) -> Any:
 def interactive_google_setup(service: str) -> dict[str, Any]:
     import typer
 
-    typer.echo(f"\n  Google {service.title()} setup")
-    typer.echo("  You need a Google Cloud project with the appropriate API enabled.")
-    typer.echo("  Create credentials at: https://console.cloud.google.com/apis/credentials\n")
+    api_name = {
+        "calendar": "Google Calendar API",
+        "gmail": "Gmail API",
+        "drive": "Google Drive API",
+    }.get(service, f"Google {service.title()} API")
+
+    typer.echo(f"\n  Google {service.title()} OAuth Setup")
+    typer.echo("  ─" * 25)
+    typer.echo("")
+    typer.echo("  Follow these steps to create OAuth credentials:")
+    typer.echo("")
+    typer.echo("  1. Go to: https://console.cloud.google.com/")
+    typer.echo("  2. Create a new project (or select existing)")
+    typer.echo(f"  3. Enable the {api_name}:")
+    typer.echo(f"     → Search '{api_name}' in the API Library and click Enable")
+    typer.echo("  4. Go to APIs & Services → Credentials")
+    typer.echo("  5. Click '+ Create Credentials' → 'OAuth client ID'")
+    typer.echo("     → If prompted, configure the OAuth consent screen first")
+    typer.echo("       (choose 'External', fill in app name, add your email)")
+    typer.echo("  6. Application type: 'Desktop app'")
+    typer.echo("  7. Copy the Client ID and Client Secret below")
+    typer.echo("")
 
     client_id = typer.prompt("  Google Client ID")
     client_secret = typer.prompt("  Google Client Secret", hide_input=True)
@@ -102,15 +120,17 @@ def interactive_google_setup(service: str) -> dict[str, Any]:
         "google_client_secret": client_secret,
     }
 
-    typer.echo(f"\n  Authenticating with Google {service.title()}...")
+    typer.echo(f"\n  Authenticating with {api_name}...")
+    typer.echo("  A browser window will open for you to authorize access.")
+    typer.echo("  mneia requests read-only access — it will never modify your data.\n")
     try:
         creds = get_google_credentials(service, client_id, client_secret)
         if creds and creds.valid:
-            typer.echo("  Authentication successful!")
+            typer.echo("  ✓ Authentication successful!")
         else:
-            typer.echo("  Warning: Authentication may have failed.")
+            typer.echo("  ⚠ Warning: Authentication may have failed.")
     except Exception as e:
-        typer.echo(f"  Authentication error: {e}")
-        typer.echo("  You can retry later with: mneia connector setup google-{service}")
+        typer.echo(f"  ✗ Authentication error: {e}")
+        typer.echo(f"  You can retry later with: mneia connector setup {service}")
 
     return settings

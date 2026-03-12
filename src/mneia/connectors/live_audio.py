@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import tempfile
 import wave
 from collections.abc import AsyncIterator
@@ -29,10 +30,11 @@ class LiveAudioConnector(BaseConnector):
     manifest = ConnectorManifest(
         name="live-audio",
         display_name="Live Audio Capture",
-        version="0.1.0",
+        version="0.2.0",
         description=(
             "Capture system audio during meetings and transcribe "
-            "in real-time (requires virtual audio device)"
+            "in real-time using ScreenCaptureKit (macOS 13+) "
+            "or virtual audio device"
         ),
         author="mneia-team",
         mode=ConnectorMode.WATCH,
@@ -45,6 +47,7 @@ class LiveAudioConnector(BaseConnector):
             "whisper_model",
             "language",
             "chunk_seconds",
+            "capture_method",
         ],
     )
 
@@ -54,6 +57,7 @@ class LiveAudioConnector(BaseConnector):
         self._language: str = "en"
         self._chunk_seconds: int = CHUNK_DURATION_SECONDS
         self._backend: str = "auto"
+        self._capture_method: str = "auto"
         self._recording: bool = False
         self._meeting_start: datetime | None = None
         self._chunk_index: int = 0
@@ -63,24 +67,56 @@ class LiveAudioConnector(BaseConnector):
         self._audio_device = config.get("audio_device")
         self._whisper_model = config.get("whisper_model", "base")
         self._language = config.get("language", "en")
+        self._capture_method = config.get("capture_method", "auto")
 
         chunk_s = config.get("chunk_seconds", "")
         if chunk_s:
             self._chunk_seconds = int(chunk_s)
 
-        try:
-            import sounddevice  # noqa: F401
-        except ImportError:
-            self.last_error = "sounddevice not installed. Run: pip install 'mneia[audio]'"
-            logger.error(self.last_error)
-            return False
-
         self._backend = detect_backend()
         if self._backend == "none":
             self.last_error = (
-                "No whisper backend found. Install faster-whisper or whisper-cpp"
+                "No whisper backend found. "
+                "Install faster-whisper or whisper-cpp"
             )
             logger.error(self.last_error)
+            return False
+
+        if self._capture_method == "auto":
+            self._capture_method = _detect_capture_method()
+
+        if self._capture_method == "screencapturekit":
+            from mneia.connectors.screencapturekit_audio import (
+                compile_capture_binary,
+            )
+            binary = compile_capture_binary()
+            if not binary:
+                self.last_error = (
+                    "ScreenCaptureKit setup failed. "
+                    "Ensure Xcode CLI tools are installed: "
+                    "xcode-select --install"
+                )
+                logger.error(self.last_error)
+                return False
+            logger.info("Audio capture: ScreenCaptureKit (no virtual device needed)")
+        elif self._capture_method == "sounddevice":
+            try:
+                import sounddevice  # noqa: F401
+            except ImportError:
+                self.last_error = (
+                    "sounddevice not installed. "
+                    "Run: pip install 'mneia[audio]'"
+                )
+                logger.error(self.last_error)
+                return False
+            logger.info(
+                f"Audio capture: sounddevice "
+                f"(device={self._audio_device or 'default'})"
+            )
+        else:
+            self.last_error = (
+                f"Unknown capture method: {self._capture_method}"
+            )
             return False
 
         return True
@@ -98,7 +134,7 @@ class LiveAudioConnector(BaseConnector):
 
         logger.info(
             f"Live audio capture started "
-            f"(device={self._audio_device}, "
+            f"(method={self._capture_method}, "
             f"chunk={self._chunk_seconds}s)"
         )
 
@@ -116,36 +152,68 @@ class LiveAudioConnector(BaseConnector):
         backend = detect_backend()
         if backend == "none":
             return False
-        has_sounddevice = _check_sounddevice()
-        return has_sounddevice
+        method = _detect_capture_method()
+        if method == "screencapturekit":
+            return True
+        return _check_sounddevice()
 
     def interactive_setup(self) -> dict[str, Any]:
         import typer
 
-        typer.echo(
-            "\n  Live Audio Capture — records system audio "
-            "and transcribes."
-        )
-        typer.echo(
-            "  macOS: Install BlackHole for virtual audio device."
-        )
-        typer.echo(
-            "  Linux: Use PulseAudio monitor source.\n"
-        )
+        method = _detect_capture_method()
 
-        device = typer.prompt(
-            "  Audio device name (or empty for default)",
-            default="",
-        )
+        if method == "screencapturekit":
+            typer.echo(
+                "\n  Live Audio Capture — ScreenCaptureKit"
+            )
+            typer.echo(
+                "  Uses macOS ScreenCaptureKit to capture "
+                "system audio directly."
+            )
+            typer.echo(
+                "  No virtual audio device needed.\n"
+            )
+            typer.echo(
+                "  On first use, macOS will ask you to grant "
+                "Screen Recording permission."
+            )
+            typer.echo(
+                "  Go to System Settings → Privacy & Security "
+                "→ Screen Recording → enable mneia.\n"
+            )
+        else:
+            typer.echo(
+                "\n  Live Audio Capture — Virtual Audio Device"
+            )
+            typer.echo(
+                "  macOS: Install BlackHole for virtual "
+                "audio device."
+            )
+            typer.echo(
+                "  Linux: Use PulseAudio monitor source.\n"
+            )
+
         model = typer.prompt("  Whisper model", default="base")
         language = typer.prompt("  Language", default="en")
+        chunk = typer.prompt(
+            "  Chunk duration (seconds)", default="30",
+        )
 
         settings: dict[str, Any] = {
             "whisper_model": model,
             "language": language,
+            "chunk_seconds": chunk,
+            "capture_method": method,
         }
-        if device:
-            settings["audio_device"] = device
+
+        if method == "sounddevice":
+            device = typer.prompt(
+                "  Audio device name (or empty for default)",
+                default="",
+            )
+            if device:
+                settings["audio_device"] = device
+
         return settings
 
     async def _capture_loop(self) -> AsyncIterator[RawDocument]:
@@ -154,7 +222,11 @@ class LiveAudioConnector(BaseConnector):
             wav_path = Path(tmp_dir) / f"chunk_{self._chunk_index}.wav"
 
             try:
-                recorded = await self._record_chunk(wav_path)
+                if self._capture_method == "screencapturekit":
+                    recorded = await self._record_sck(wav_path)
+                else:
+                    recorded = await self._record_sounddevice(wav_path)
+
                 if not recorded:
                     await asyncio.sleep(1)
                     continue
@@ -174,10 +246,19 @@ class LiveAudioConnector(BaseConnector):
                 logger.error(f"Capture chunk failed: {e}")
                 await asyncio.sleep(1)
             finally:
-                import shutil
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    async def _record_chunk(self, output_path: Path) -> bool:
+    async def _record_sck(self, output_path: Path) -> bool:
+        from mneia.connectors.screencapturekit_audio import (
+            record_system_audio,
+        )
+        return await record_system_audio(
+            output_path,
+            duration_seconds=self._chunk_seconds,
+            sample_rate=SAMPLE_RATE,
+        )
+
+    async def _record_sounddevice(self, output_path: Path) -> bool:
         try:
             import sounddevice as sd
         except ImportError:
@@ -242,8 +323,19 @@ class LiveAudioConnector(BaseConnector):
                 ),
                 "chunk_duration_seconds": self._chunk_seconds,
                 "whisper_model": self._whisper_model,
+                "capture_method": self._capture_method,
             },
         )
+
+
+def _detect_capture_method() -> str:
+    from mneia.connectors.screencapturekit_audio import is_available
+
+    if is_available():
+        return "screencapturekit"
+    if _check_sounddevice():
+        return "sounddevice"
+    return "screencapturekit"
 
 
 def _check_sounddevice() -> bool:

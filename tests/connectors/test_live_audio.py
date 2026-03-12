@@ -22,6 +22,9 @@ async def test_authenticate_success():
     with patch(
         "mneia.connectors.live_audio.detect_backend",
         return_value="faster-whisper",
+    ), patch(
+        "mneia.connectors.live_audio._detect_capture_method",
+        return_value="sounddevice",
     ):
         c = LiveAudioConnector()
         result = await c.authenticate({
@@ -46,6 +49,9 @@ async def test_authenticate_with_device():
     with patch(
         "mneia.connectors.live_audio.detect_backend",
         return_value="faster-whisper",
+    ), patch(
+        "mneia.connectors.live_audio._detect_capture_method",
+        return_value="sounddevice",
     ):
         c = LiveAudioConnector()
         result = await c.authenticate({
@@ -55,6 +61,23 @@ async def test_authenticate_with_device():
     assert result is True
     assert c._audio_device == "BlackHole 2ch"
     assert c._chunk_seconds == 15
+
+
+async def test_authenticate_screencapturekit():
+    with patch(
+        "mneia.connectors.live_audio.detect_backend",
+        return_value="faster-whisper",
+    ), patch(
+        "mneia.connectors.live_audio._detect_capture_method",
+        return_value="screencapturekit",
+    ), patch(
+        "mneia.connectors.screencapturekit_audio.compile_capture_binary",
+        return_value="/tmp/fake-binary",
+    ):
+        c = LiveAudioConnector()
+        result = await c.authenticate({})
+    assert result is True
+    assert c._capture_method == "screencapturekit"
 
 
 def test_create_document():

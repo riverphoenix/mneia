@@ -38,8 +38,12 @@ class GoogleCalendarConnector(BaseConnector):
         self._lookback_days: int = 30
 
     async def authenticate(self, config: dict[str, Any]) -> bool:
+        self.last_error = ""
         try:
-            from mneia.connectors.google_auth import build_service, get_google_credentials
+            from mneia.connectors.google_auth import (
+                build_service,
+                get_google_credentials,
+            )
 
             client_id = config.get("google_client_id", "")
             client_secret = config.get("google_client_secret", "")
@@ -51,7 +55,9 @@ class GoogleCalendarConnector(BaseConnector):
 
             cal_ids = config.get("calendar_ids", "")
             if cal_ids:
-                self._calendar_ids = [c.strip() for c in cal_ids.split(",") if c.strip()]
+                self._calendar_ids = [
+                    c.strip() for c in cal_ids.split(",") if c.strip()
+                ]
 
             lookback = config.get("lookback_days", "")
             if lookback:
@@ -59,10 +65,13 @@ class GoogleCalendarConnector(BaseConnector):
 
             return True
         except ImportError:
-            logger.error("Google libraries not installed. Run: pip install 'mneia[google]'")
+            self.last_error = (
+                "Google libraries not installed. "
+                "Run: pip install 'mneia[google]'"
+            )
             return False
         except Exception as e:
-            logger.error(f"Google Calendar auth failed: {e}")
+            self.last_error = f"Google Calendar auth failed: {e}"
             return False
 
     async def fetch_since(self, since: datetime | None) -> AsyncIterator[RawDocument]:

@@ -1,25 +1,37 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import threading
 import time
 
 import rumps
 
 from mneia.config import PID_PATH, SOCKET_PATH
 
+logger = logging.getLogger(__name__)
+
 
 class MneiaMenuBar(rumps.App):
     def __init__(self) -> None:
         super().__init__("mneia", title="M", quit_button=None)
         self._agent_items: dict[str, rumps.MenuItem] = {}
+        self._recording = False
+        self._record_thread: threading.Thread | None = None
         self._refresh_timer = rumps.Timer(self._refresh, 5)
         self._refresh_timer.start()
         self._build_menu()
 
     def _build_menu(self) -> None:
         self.menu.clear()
+        rec_label = (
+            "\u23f9 Stop Recording" if self._recording
+            else "\u23fa Start Recording"
+        )
         self.menu = [
             rumps.MenuItem("mneia", callback=None),
+            None,
+            rumps.MenuItem(rec_label, callback=self._on_toggle_recording),
             None,
             rumps.MenuItem("Start All", callback=self._on_start_all),
             rumps.MenuItem("Stop All", callback=self._on_stop_all),
@@ -37,13 +49,22 @@ class MneiaMenuBar(rumps.App):
 
         agents = self._get_agents()
         if agents is None:
-            self.title = "M"
-            self.menu.insert_after(None, rumps.MenuItem("Daemon not running"))
+            self.title = "\U0001f534 M" if self._recording else "M"
+            self.menu.insert_after(
+                None, rumps.MenuItem("Daemon not running"),
+            )
             return
 
-        running_count = sum(1 for a in agents if a["state"] == "running")
+        running_count = sum(
+            1 for a in agents if a["state"] == "running"
+        )
         total = len(agents)
-        self.title = f"M({running_count}/{total})" if agents else "M"
+        if self._recording:
+            self.title = f"\U0001f534 M({running_count}/{total})"
+        elif agents:
+            self.title = f"M({running_count}/{total})"
+        else:
+            self.title = "M"
 
         for a in agents:
             is_running = a["state"] == "running"
@@ -75,7 +96,9 @@ class MneiaMenuBar(rumps.App):
     async def _send(self, action: str, **kwargs: str) -> dict:
         import json
 
-        reader, writer = await asyncio.open_unix_connection(str(SOCKET_PATH))
+        reader, writer = await asyncio.open_unix_connection(
+            str(SOCKET_PATH),
+        )
         try:
             command = {"action": action, **kwargs}
             writer.write(json.dumps(command).encode())
@@ -86,7 +109,9 @@ class MneiaMenuBar(rumps.App):
             writer.close()
             await writer.wait_closed()
 
-    def _toggle_agent(self, name: str, currently_running: bool) -> None:
+    def _toggle_agent(
+        self, name: str, currently_running: bool,
+    ) -> None:
         try:
             if currently_running:
                 asyncio.run(self._send("stop_agent", name=name))
@@ -96,6 +121,94 @@ class MneiaMenuBar(rumps.App):
             pass
         time.sleep(0.5)
         self._update_status()
+
+    def _on_toggle_recording(self, sender: rumps.MenuItem) -> None:
+        if self._recording:
+            self._stop_recording()
+        else:
+            self._start_recording()
+
+    def _start_recording(self) -> None:
+        self._recording = True
+        self._rebuild_recording_item()
+        self._update_status()
+
+        def _run() -> None:
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._recording_loop())
+            except Exception:
+                logger.exception("Recording thread error")
+            finally:
+                self._recording = False
+                rumps.App._log(self, "Recording stopped")
+
+        self._record_thread = threading.Thread(
+            target=_run, daemon=True,
+        )
+        self._record_thread.start()
+
+    def _stop_recording(self) -> None:
+        self._recording = False
+        self._rebuild_recording_item()
+        self._update_status()
+
+    def _rebuild_recording_item(self) -> None:
+        label = (
+            "\u23f9 Stop Recording" if self._recording
+            else "\u23fa Start Recording"
+        )
+        try:
+            old_key = (
+                "\u23f9 Stop Recording" if not self._recording
+                else "\u23fa Start Recording"
+            )
+            if old_key in self.menu:
+                self.menu[old_key].title = label
+        except Exception:
+            pass
+
+    async def _recording_loop(self) -> None:
+        from mneia.config import MneiaConfig
+        from mneia.connectors.live_audio import LiveAudioConnector
+        from mneia.memory.store import MemoryStore
+
+        config = MneiaConfig.load()
+        connector = LiveAudioConnector()
+
+        conn_config = config.connectors.get("live-audio")
+        settings = conn_config.settings if conn_config else {}
+
+        ok = await connector.authenticate(settings)
+        if not ok:
+            rumps.notification(
+                "mneia",
+                "Recording failed",
+                connector.last_error or "Audio setup failed",
+            )
+            return
+
+        store = MemoryStore()
+
+        rumps.notification(
+            "mneia", "Recording started",
+            "Capturing system audio...",
+        )
+
+        async for doc in connector.start_recording():
+            if not self._recording:
+                break
+            try:
+                await store.store_document(doc)
+            except Exception:
+                logger.exception("Failed to store audio chunk")
+
+        await connector.stop_recording()
+        rumps.notification(
+            "mneia", "Recording stopped",
+            f"Transcribed {connector._chunk_index} chunk(s)",
+        )
 
     def _on_start_all(self, _: rumps.MenuItem) -> None:
         import subprocess
@@ -139,6 +252,8 @@ class MneiaMenuBar(rumps.App):
         self._update_status()
 
     def _on_exit(self, _: rumps.MenuItem) -> None:
+        if self._recording:
+            self._stop_recording()
         rumps.quit_application()
 
     def _refresh(self, _: rumps.Timer) -> None:

@@ -36,3 +36,4 @@ GUIDES.md
 credentials*.json
 *_secret*.json
 *.key
+src/mneia/bin/

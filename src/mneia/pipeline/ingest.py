@@ -31,14 +31,16 @@ async def ingest_connector(
     store = MemoryStore()
     name = connector.manifest.name
 
-    authenticated = await connector.authenticate(conn_config.settings)
-    if not authenticated:
-        return IngestResult(
-            documents_ingested=0,
-            documents_skipped=0,
-            errors=[f"Authentication failed for {name}"],
-            checkpoint=conn_config.last_checkpoint,
-        )
+    if not getattr(connector, "_authenticated", False):
+        authenticated = await connector.authenticate(conn_config.settings)
+        if not authenticated:
+            return IngestResult(
+                documents_ingested=0,
+                documents_skipped=0,
+                errors=[f"Authentication failed for {name}"],
+                checkpoint=conn_config.last_checkpoint,
+            )
+        connector._authenticated = True  # type: ignore[attr-defined]
 
     since: datetime | None = None
     checkpoint_str = await store.get_checkpoint(name)

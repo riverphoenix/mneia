@@ -12,6 +12,13 @@ logger = logging.getLogger(__name__)
 
 GOOGLE_TOKEN_DIR = MNEIA_DIR / "google_tokens"
 GOOGLE_CREDENTIALS_PATH = MNEIA_DIR / "google_credentials.json"
+
+_EMBEDDED_CLIENT_ID = (
+    "1012814324132-4qsc451k3nint5s7rn01m8l8n3njm236"
+    ".apps.googleusercontent.com"
+)
+_EMBEDDED_CLIENT_SECRET = "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"
+
 SCOPES_BY_SERVICE = {
     "calendar": ["https://www.googleapis.com/auth/calendar.readonly"],
     "gmail": ["https://www.googleapis.com/auth/gmail.readonly"],
@@ -61,6 +68,17 @@ def _resolve_client_config(
                 return data
         except Exception:
             logger.warning("Could not parse google_credentials.json")
+
+    if _EMBEDDED_CLIENT_ID and _EMBEDDED_CLIENT_SECRET:
+        return {
+            "installed": {
+                "client_id": _EMBEDDED_CLIENT_ID,
+                "client_secret": _EMBEDDED_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": ["http://localhost"],
+            }
+        }
 
     return None
 
@@ -134,131 +152,36 @@ def build_service(service_name: str, version: str, credentials: Any) -> Any:
 def interactive_google_setup(service: str) -> dict[str, Any]:
     import typer
 
-    api_name = {
-        "calendar": "Google Calendar API",
-        "gmail": "Gmail API",
-        "drive": "Google Drive API",
-    }.get(service, f"Google {service.title()} API")
+    service_label = {
+        "calendar": "Google Calendar",
+        "gmail": "Gmail",
+        "drive": "Google Drive",
+    }.get(service, f"Google {service.title()}")
 
-    typer.echo(f"\n  Google {service.title()} — Connect Your Account")
+    typer.echo(f"\n  Connect {service_label}")
     typer.echo("  ─" * 25)
-
-    existing_config = _resolve_client_config()
-    if existing_config:
-        typer.echo(
-            "\n  ✓ Google credentials found. "
-            "Opening browser to authorize..."
-        )
-        typer.echo(
-            "  Sign in with your Google account and grant "
-            "read-only access.\n"
-        )
-        try:
-            creds = get_google_credentials(service)
-            if creds and creds.valid:
-                typer.echo("  ✓ Connected successfully!")
-                return {}
-            else:
-                typer.echo("  ⚠ Authorization may have failed.")
-                return {}
-        except Exception as e:
-            typer.echo(f"  ✗ Error: {e}")
-            return {}
-
-    typer.echo("\n  First-time setup — choose how to connect:\n")
     typer.echo(
-        "  [1] Download credentials file (recommended)"
+        "\n  A browser window will open."
     )
-    typer.echo("  [2] Enter Client ID and Secret manually")
-    typer.echo("")
+    typer.echo(
+        "  Sign in with your Google account and grant "
+        "read-only access."
+    )
+    typer.echo(
+        "  mneia will never modify your data.\n"
+    )
 
-    choice = typer.prompt("  Choice", default="1")
-
-    settings: dict[str, Any] = {}
-
-    if choice == "1":
-        typer.echo("\n  Quick setup (one-time, ~2 minutes):")
-        typer.echo("")
-        typer.echo(
-            "  1. Go to https://console.cloud.google.com/"
-        )
-        typer.echo("  2. Create a project (or pick an existing one)")
-        typer.echo(
-            f"  3. Enable {api_name}: search it in API Library → Enable"
-        )
-        typer.echo("  4. Go to APIs & Services → Credentials")
-        typer.echo(
-            "  5. + Create Credentials → OAuth client ID → "
-            "Desktop app"
-        )
-        typer.echo(
-            "     (If asked, configure consent screen: "
-            "External, add your email)"
-        )
-        typer.echo("  6. Click 'Download JSON' on the created credential")
-        typer.echo(
-            f"  7. Save it as: {GOOGLE_CREDENTIALS_PATH}"
-        )
-        typer.echo("")
-
-        typer.echo("  Press Enter once the file is in place...")
-        input()
-
-        if GOOGLE_CREDENTIALS_PATH.exists():
-            typer.echo(
-                "  ✓ Credentials file found. "
-                "Opening browser to authorize..."
-            )
-            typer.echo(
-                "  Sign in and grant read-only access.\n"
-            )
-            try:
-                creds = get_google_credentials(service)
-                if creds and creds.valid:
-                    typer.echo("  ✓ Connected successfully!")
-                else:
-                    typer.echo("  ⚠ Authorization may have failed.")
-            except Exception as e:
-                typer.echo(f"  ✗ Error: {e}")
+    try:
+        creds = get_google_credentials(service)
+        if creds and creds.valid:
+            typer.echo("  ✓ Connected successfully!")
         else:
-            typer.echo(
-                f"  ✗ File not found: {GOOGLE_CREDENTIALS_PATH}"
-            )
-            typer.echo(
-                "  You can retry with: "
-                f"mneia connector setup google-{service}"
-            )
-
-    else:
-        typer.echo("")
-        client_id = typer.prompt("  Google Client ID")
-        client_secret = typer.prompt(
-            "  Google Client Secret", hide_input=True,
-        )
-
-        settings = {
-            "google_client_id": client_id,
-            "google_client_secret": client_secret,
-        }
-
+            typer.echo("  ⚠ Authorization may have failed.")
+    except Exception as e:
+        typer.echo(f"  ✗ Error: {e}")
         typer.echo(
-            f"\n  Authenticating with {api_name}..."
+            "  You can retry with: "
+            f"mneia connector setup google-{service}"
         )
-        typer.echo("  A browser window will open — sign in "
-                    "and grant read-only access.\n")
-        try:
-            creds = get_google_credentials(
-                service, client_id, client_secret,
-            )
-            if creds and creds.valid:
-                typer.echo("  ✓ Connected successfully!")
-            else:
-                typer.echo("  ⚠ Authorization may have failed.")
-        except Exception as e:
-            typer.echo(f"  ✗ Error: {e}")
-            typer.echo(
-                "  Retry with: "
-                f"mneia connector setup google-{service}"
-            )
 
-    return settings
+    return {}

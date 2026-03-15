@@ -12,7 +12,7 @@ Autonomous multi-agent personal knowledge system. mneia connects to your apps (r
 
 ## What it does
 
-- **Connects** to 18 data sources (Calendar, Slack, GitHub, Notes, Chrome, Audio, and more) — read-only, always
+- **Connects** to 19 data sources (Calendar, Slack, GitHub, Notes, Chrome, Local Folders, and more) — read-only, always
 - **Learns** by extracting entities, relationships, and patterns from your data via LLM
 - **Remembers** everything locally in a knowledge graph with vector embeddings — nothing leaves your machine
 - **Thinks** autonomously — identifies gaps, proposes connections, and surfaces insights
@@ -26,7 +26,7 @@ Autonomous multi-agent personal knowledge system. mneia connects to your apps (r
 pip install mneia
 ```
 
-Or with all optional extras (Google, Slack, audio, vector search, etc.):
+Or with all optional extras (Google, Slack, audio, vector search, BM25 search, etc.):
 
 ```bash
 pip install mneia[all]
@@ -237,7 +237,8 @@ Natural language is also supported — the LLM detects intent and can automatica
 | Zoom | Meeting recordings & transcripts | OAuth2 (S2S) | Poll |
 | Chrome History | Browser history + page content | Local SQLite | Poll |
 | Audio Transcription | Audio files (WAV, MP3, M4A) | Local (whisper) | Poll |
-| Live Audio | Real-time meeting capture | Sounddevice | Watch |
+| Granola | Meeting notes (markdown) | Local files | Poll |
+| Local Folders | Text, code, PDF files | Local files | Watch |
 | Slack | Channel messages | Bot token | Poll |
 | GitHub | Issues & pull requests | PAT | Poll |
 | Linear | Issues & projects | API key | Poll |
@@ -285,6 +286,7 @@ PersistentMemory (cross-session)
 
 mneia uses hybrid search combining:
 - **Full-text search** (SQLite FTS5) for keyword matching
+- **BM25 ranking** (rank_bm25) for relevance scoring — `pip install 'mneia[search]'`
 - **Vector search** (ChromaDB + nomic-embed-text) for semantic similarity
 - **Knowledge graph** traversal for entity context
 
@@ -295,7 +297,7 @@ Results are merged and deduplicated for optimal relevance.
 Operations are classified by risk level:
 - **LOW** — auto-approved (searches, reads)
 - **MEDIUM** — requires user consent (web scraping, sync)
-- **HIGH** — requires explicit approval (live audio capture)
+- **HIGH** — requires explicit approval (filesystem scanning, audio transcription)
 - **CRITICAL** — always prompts (data purge)
 
 Pre-approve operations with `mneia permission grant <operation>`.
@@ -343,7 +345,7 @@ pytest tests/integration/       # CLI integration tests
 pytest -v                       # All tests with verbose output
 ```
 
-497 tests covering all agents, connectors, pipeline stages, and core infrastructure.
+604 tests covering all agents, connectors, pipeline stages, and core infrastructure.
 
 ## License
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from mneia.config import MneiaConfig
@@ -55,8 +56,24 @@ class ConversationEngine:
         self._session_manager = session_manager
         self._history: list[ConversationTurn] = []
 
-    async def ask(self, question: str, source_filter: str | None = None) -> ConversationResult:
-        fts_results = await self._store.search(question, limit=5)
+    async def ask(
+        self,
+        question: str,
+        source_filter: str | None = None,
+        source_hints: list[str] | None = None,
+    ) -> ConversationResult:
+        if source_filter:
+            fts_results = await self._store.search(
+                question, limit=5, source=source_filter,
+            )
+        elif source_hints:
+            fts_results = await self._store.search(
+                question, limit=5, sources=source_hints,
+            )
+            if not fts_results:
+                fts_results = await self._store.search(question, limit=5)
+        else:
+            fts_results = await self._store.search(question, limit=5)
 
         vector_results = await self._vector_search(question, n_results=5)
 
@@ -77,9 +94,18 @@ class ConversationEngine:
 
         history_block = self._format_history()
 
+        now_local = datetime.now()
+        date_str = now_local.strftime("%A, %B %d, %Y")
+        time_str = now_local.strftime("%H:%M")
+
         system_parts = [
-            "You are mneia, a personal knowledge assistant. "
-            "You help the user understand their own knowledge, notes, meetings, and work.\n\n"
+            "You are mneia (\u03bc\u03bd\u03b5\u03af\u03b1 — Greek for 'memory'), "
+            "a personal knowledge assistant that continuously learns from the user's "
+            "digital life. You have access to their calendar events, emails, documents, "
+            "notes, audio transcripts, and web research — all ingested from connected "
+            "sources and organised into a searchable knowledge base with a knowledge graph "
+            "of entities and relationships.\n\n"
+            f"Current date and time: {date_str}, {time_str} (local time)\n\n"
             "RULES:\n"
             "- Answer based on the provided context from the user's documents "
             "and knowledge graph.\n"
@@ -87,6 +113,8 @@ class ConversationEngine:
             "- If the context doesn't contain relevant information, say so honestly.\n"
             "- Reference specific documents by title when citing information.\n"
             "- When listing people, projects, or topics, include what you know about each.\n"
+            "- For time-relative questions ('tomorrow', 'next week', 'yesterday'), "
+            "use the current date above to calculate the correct dates.\n"
             "- At the end of your response, suggest 2-3 follow-up questions the user could ask, "
             "prefixed with 'You could also ask:'\n"
             "- If the user's question is ambiguous, ask a clarifying question instead of guessing."

@@ -185,6 +185,21 @@ class AgentManager:
         )
         logger.info("Started agent: meta")
 
+        from mneia.agents.knowledge import KnowledgeAgent
+
+        knowledge = KnowledgeAgent(
+            name="knowledge",
+            config=self.config,
+            store=store,
+            graph=graph,
+        )
+        self._agents[knowledge.name] = knowledge
+        self._tasks[knowledge.name] = asyncio.create_task(
+            self._run_agent(knowledge),
+            name=knowledge.name,
+        )
+        logger.info("Started agent: knowledge")
+
         if self.config.autonomous_enabled:
             from mneia.agents.autonomous import AutonomousAgent
 

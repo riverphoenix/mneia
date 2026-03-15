@@ -58,6 +58,9 @@ class MneiaConfig(BaseModel):
     autonomous_interval_minutes: int = 30
     autonomous_max_actions: int = 5
     autonomous_creativity_temperature: float = 0.7
+    hermes_enabled: bool = True
+    hermes_model: str = ""
+    hermes_max_iterations: int = 10
     max_memory_mb: int = 2048
     log_level: str = "info"
 

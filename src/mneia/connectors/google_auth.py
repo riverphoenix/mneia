@@ -26,8 +26,10 @@ SCOPES_BY_SERVICE = {
 }
 
 
-def _token_path(service: str) -> Path:
+def _token_path(service: str, account: str = "") -> Path:
     GOOGLE_TOKEN_DIR.mkdir(parents=True, exist_ok=True)
+    if account:
+        return GOOGLE_TOKEN_DIR / f"{service}_{account}_token.json"
     return GOOGLE_TOKEN_DIR / f"{service}_token.json"
 
 
@@ -88,6 +90,7 @@ def get_google_credentials(
     client_id: str = "",
     client_secret: str = "",
     scopes: list[str] | None = None,
+    account: str = "",
 ) -> Any:
     try:
         from google.auth.transport.requests import Request
@@ -102,7 +105,7 @@ def get_google_credentials(
     if scopes is None:
         scopes = SCOPES_BY_SERVICE.get(service, [])
 
-    token_file = _token_path(service)
+    token_file = _token_path(service, account)
     creds: Credentials | None = None
 
     if token_file.exists():
@@ -134,7 +137,8 @@ def get_google_credentials(
     creds = flow.run_local_server(port=0, open_browser=True)
 
     token_file.write_text(creds.to_json(), encoding="utf-8")
-    logger.info(f"Google OAuth2 credentials saved for {service}")
+    label = f"{service}/{account}" if account else service
+    logger.info(f"Google OAuth2 credentials saved for {label}")
     return creds
 
 
@@ -149,7 +153,7 @@ def build_service(service_name: str, version: str, credentials: Any) -> Any:
     return build(service_name, version, credentials=credentials)
 
 
-def interactive_google_setup(service: str) -> dict[str, Any]:
+def interactive_google_setup(service: str, account: str = "") -> dict[str, Any]:
     import typer
 
     service_label = {
@@ -158,7 +162,8 @@ def interactive_google_setup(service: str) -> dict[str, Any]:
         "drive": "Google Drive",
     }.get(service, f"Google {service.title()}")
 
-    typer.echo(f"\n  Connect {service_label}")
+    label = f"{service_label} ({account})" if account else service_label
+    typer.echo(f"\n  Connect {label}")
     typer.echo("  ─" * 25)
     typer.echo(
         "\n  A browser window will open."
@@ -172,7 +177,7 @@ def interactive_google_setup(service: str) -> dict[str, Any]:
     )
 
     try:
-        creds = get_google_credentials(service)
+        creds = get_google_credentials(service, account=account)
         if creds and creds.valid:
             typer.echo("  ✓ Connected successfully!")
         else:
@@ -184,4 +189,7 @@ def interactive_google_setup(service: str) -> dict[str, Any]:
             f"mneia connector setup google-{service}"
         )
 
-    return {}
+    settings: dict[str, Any] = {}
+    if account:
+        settings["account_name"] = account
+    return settings

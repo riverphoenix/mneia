@@ -213,3 +213,97 @@ async def test_handle_ipc_empty_data(manager):
 
     await manager._handle_ipc(reader, writer)
     writer.write.assert_not_called()
+
+
+def test_failed_connectors_initialized(manager):
+    assert manager._failed_connectors == {}
+
+
+async def test_start_agents_unknown_connector(manager):
+    from mneia.config import ConnectorConfig
+
+    manager.config.connectors = {
+        "nonexistent": ConnectorConfig(
+            connector_type="nonexistent",
+            enabled=True,
+            settings={},
+        ),
+    }
+
+    with patch("mneia.connectors.create_connector", return_value=None), \
+         patch("mneia.agents.listener.ListenerAgent", MagicMock()), \
+         patch("mneia.agents.worker.WorkerAgent", MagicMock()), \
+         patch("mneia.agents.meta.MetaAgent", MagicMock()), \
+         patch("mneia.memory.store.MemoryStore"), \
+         patch("mneia.memory.graph.KnowledgeGraph"), \
+         patch("mneia.memory.vector_store.VectorStore") as mock_vs, \
+         patch("mneia.memory.embeddings.EmbeddingClient"), \
+         patch("mneia.core.llm.LLMClient"):
+        mock_vs.return_value.available = False
+        await manager._start_agents()
+
+    assert "nonexistent" in manager._failed_connectors
+    assert "Unknown connector type" in manager._failed_connectors["nonexistent"]
+
+
+async def test_start_agents_auth_exception(manager):
+    from mneia.config import ConnectorConfig
+
+    mock_connector = MagicMock()
+    mock_connector.authenticate = AsyncMock(side_effect=RuntimeError("auth boom"))
+    mock_connector.manifest.name = "test-conn"
+
+    manager.config.connectors = {
+        "test-conn": ConnectorConfig(
+            connector_type="test-conn",
+            enabled=True,
+            settings={},
+        ),
+    }
+
+    with patch("mneia.connectors.create_connector", return_value=mock_connector), \
+         patch("mneia.agents.listener.ListenerAgent", MagicMock()), \
+         patch("mneia.agents.worker.WorkerAgent", MagicMock()), \
+         patch("mneia.agents.meta.MetaAgent", MagicMock()), \
+         patch("mneia.memory.store.MemoryStore"), \
+         patch("mneia.memory.graph.KnowledgeGraph"), \
+         patch("mneia.memory.vector_store.VectorStore") as mock_vs, \
+         patch("mneia.memory.embeddings.EmbeddingClient"), \
+         patch("mneia.core.llm.LLMClient"):
+        mock_vs.return_value.available = False
+        await manager._start_agents()
+
+    assert "test-conn" in manager._failed_connectors
+    assert "auth boom" in manager._failed_connectors["test-conn"]
+
+
+async def test_start_agents_auth_failed_with_last_error(manager):
+    from mneia.config import ConnectorConfig
+
+    mock_connector = MagicMock()
+    mock_connector.authenticate = AsyncMock(return_value=False)
+    mock_connector.last_error = "Invalid token"
+    mock_connector.manifest.name = "test-conn"
+
+    manager.config.connectors = {
+        "test-conn": ConnectorConfig(
+            connector_type="test-conn",
+            enabled=True,
+            settings={},
+        ),
+    }
+
+    with patch("mneia.connectors.create_connector", return_value=mock_connector), \
+         patch("mneia.agents.listener.ListenerAgent", MagicMock()), \
+         patch("mneia.agents.worker.WorkerAgent", MagicMock()), \
+         patch("mneia.agents.meta.MetaAgent", MagicMock()), \
+         patch("mneia.memory.store.MemoryStore"), \
+         patch("mneia.memory.graph.KnowledgeGraph"), \
+         patch("mneia.memory.vector_store.VectorStore") as mock_vs, \
+         patch("mneia.memory.embeddings.EmbeddingClient"), \
+         patch("mneia.core.llm.LLMClient"):
+        mock_vs.return_value.available = False
+        await manager._start_agents()
+
+    assert "test-conn" in manager._failed_connectors
+    assert "Invalid token" in manager._failed_connectors["test-conn"]

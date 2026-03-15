@@ -8,6 +8,8 @@ from mneia.core.connector import BaseConnector, ConnectorManifest
 _BUILTIN_CONNECTORS: dict[str, type[BaseConnector]] = {}
 _MANIFESTS: dict[str, ConnectorManifest] = {}
 
+MULTI_ACCOUNT_CONNECTORS = {"gmail", "google-drive", "google-calendar"}
+
 
 def _register(cls: type[BaseConnector]) -> None:
     manifest = cls.manifest
@@ -49,15 +51,17 @@ def _discover_builtins() -> None:
 
     from mneia.connectors.audio_transcription import AudioTranscriptionConnector
     from mneia.connectors.github import GitHubConnector
+    from mneia.connectors.granola import GranolaConnector
     from mneia.connectors.linear import LinearConnector
-    from mneia.connectors.live_audio import LiveAudioConnector
+    from mneia.connectors.local_folders import LocalFoldersConnector
     from mneia.connectors.slack import SlackConnector
     from mneia.connectors.todoist import TodoistConnector
 
     _register(AudioTranscriptionConnector)
     _register(GitHubConnector)
-    _register(LiveAudioConnector)
+    _register(GranolaConnector)
     _register(LinearConnector)
+    _register(LocalFoldersConnector)
     _register(SlackConnector)
     _register(TodoistConnector)
 
@@ -78,6 +82,15 @@ def _discover_third_party() -> None:
             pass
 
 
+def _resolve_base_connector(name: str) -> str | None:
+    if name in _BUILTIN_CONNECTORS:
+        return name
+    for base in MULTI_ACCOUNT_CONNECTORS:
+        if name.startswith(f"{base}-") and len(name) > len(base) + 1:
+            return base
+    return None
+
+
 def get_available_connectors() -> list[ConnectorManifest]:
     _discover_builtins()
     _discover_third_party()
@@ -87,12 +100,19 @@ def get_available_connectors() -> list[ConnectorManifest]:
 def get_connector_manifest(name: str) -> ConnectorManifest | None:
     _discover_builtins()
     _discover_third_party()
+    base = _resolve_base_connector(name)
+    if base:
+        return _MANIFESTS.get(base)
     return _MANIFESTS.get(name)
 
 
 def create_connector(name: str) -> BaseConnector | None:
     _discover_builtins()
     _discover_third_party()
+    base = _resolve_base_connector(name)
+    if base:
+        cls = _BUILTIN_CONNECTORS[base]
+        return cls()
     cls = _BUILTIN_CONNECTORS.get(name)
     if cls:
         return cls()

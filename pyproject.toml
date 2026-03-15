@@ -7,7 +7,7 @@ name = "mneia"
 version = "0.1.0"
 description = "Autonomous multi-agent personal knowledge system"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Dimitris Sotiriou", email = "mneia@dsotiriou.dev" }]
 readme = "README.md"
 keywords = [
@@ -23,7 +23,6 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -43,6 +42,8 @@ dependencies = [
     "watchfiles>=0.21",
     "prompt_toolkit>=3.0",
     "textual>=0.80",
+    "hermes-agent @ git+https://github.com/NousResearch/hermes-agent.git",
+    "litellm>=1.75",
 ]
 
 [project.optional-dependencies]
@@ -55,10 +56,11 @@ atlassian = ["atlassian-python-api>=3.0"]
 notion = ["notion-client>=2.0"]
 audio = ["faster-whisper>=1.0", "sounddevice>=0.4"]
 web = ["crawl4ai>=0.4", "playwright>=1.40"]
+search = ["rank_bm25>=0.2.2"]
 vector = ["chromadb>=0.5"]
 mcp = ["mcp>=1.0"]
 menubar = ["rumps>=0.4"]
-all = ["mneia[google,atlassian,notion,audio,web,vector,mcp,menubar]"]
+all = ["mneia[google,atlassian,notion,audio,web,vector,search,mcp,menubar]"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
@@ -78,6 +80,9 @@ Changelog = "https://github.com/riverphoenix/mneia/releases"
 mneia = "mneia.cli:main"
 mneia-menubar = "mneia.menubar:run_menubar"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/mneia"]
 
@@ -85,11 +90,12 @@ packages = ["src/mneia"]
 include = ["src/mneia", "README.md", "LICENSE", "docs"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["UP017"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -99,7 +105,7 @@ markers = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

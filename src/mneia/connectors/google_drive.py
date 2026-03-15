@@ -60,11 +60,13 @@ class GoogleDriveConnector(BaseConnector):
 
             client_id = config.get("google_client_id", "")
             client_secret = config.get("google_client_secret", "")
+            account = config.get("account_name", "")
 
             creds = get_google_credentials(
-                "drive", client_id, client_secret,
+                "drive", client_id, client_secret, account=account,
             )
             self._service = build_service("drive", "v3", creds)
+            self._account = account
 
             folder_ids = config.get("folder_ids", "")
             if folder_ids:
@@ -153,10 +155,10 @@ class GoogleDriveConnector(BaseConnector):
         except Exception:
             return False
 
-    def interactive_setup(self) -> dict[str, Any]:
+    def interactive_setup(self, account: str = "") -> dict[str, Any]:
         from mneia.connectors.google_auth import interactive_google_setup
 
-        settings = interactive_google_setup("drive")
+        settings = interactive_google_setup("drive", account=account)
 
         import typer
 
@@ -222,8 +224,9 @@ class GoogleDriveConnector(BaseConnector):
             "parents": file_meta.get("parents", []),
         }
 
+        source = f"google-drive-{self._account}" if getattr(self, "_account", "") else "google-drive"
         return RawDocument(
-            source="google-drive",
+            source=source,
             source_id=file_id,
             content=content,
             content_type=content_type if mime_type in EXPORT_MIME_MAP else "document",

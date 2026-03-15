@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.panel import Panel
@@ -941,10 +942,56 @@ def context_link(target_dir: str) -> None:
 # --- Ask command ---
 
 
+_SOURCE_COLORS: dict[str, str] = {
+    "google-calendar": "bright_green",
+    "gmail": "bright_blue",
+    "google-drive": "bright_yellow",
+    "granola": "bright_magenta",
+    "obsidian": "bright_cyan",
+    "web": "bright_white",
+    "knowledge-agent": "bright_red",
+    "autonomous-insight": "bright_red",
+}
+
+
+def _detect_source_hints(question: str) -> list[str] | None:
+    q = question.lower()
+    source_keywords: dict[str, list[str]] = {
+        "google-calendar": [
+            "calendar", "meeting", "meetings", "event", "events",
+            "schedule", "appointment", "standup", "sync", "1:1",
+            "one-on-one", "invite",
+        ],
+        "gmail": [
+            "email", "emails", "mail", "inbox", "gmail",
+            "message", "thread", "sent",
+        ],
+        "google-drive": [
+            "drive", "doc", "docs", "sheet", "sheets",
+            "slide", "slides", "google doc",
+        ],
+        "granola": [
+            "meeting", "meeting notes", "transcript",
+            "transcription", "conversation", "said",
+        ],
+        "local-folders": [
+            "file", "files", "folder", "folders", "directory",
+            "local", "document", "documents", "code", "script",
+        ],
+    }
+    matched = []
+    for source, keywords in source_keywords.items():
+        if any(kw in q for kw in keywords):
+            matched.append(source)
+    return matched if matched else None
+
+
 @app.command()
 def ask(
     question: str,
-    source: str | None = typer.Option(None, "--source", "-s", help="Limit to source"),
+    source: str | None = typer.Option(
+        None, "--source", "-s", help="Limit to source",
+    ),
 ) -> None:
     """Ask a question about your knowledge (single query with RAG)."""
     from mneia.conversation import ConversationEngine
@@ -952,29 +999,71 @@ def ask(
     config = MneiaConfig.load()
     engine = ConversationEngine(config)
 
-    try:
-        result = asyncio.run(engine.ask(question, source_filter=source))
+    async def _run() -> None:
+        hints = _detect_source_hints(question) if not source else None
+        result = await engine.ask(
+            question,
+            source_filter=source,
+            source_hints=hints,
+        )
         from rich.markdown import Markdown
+        from rich.panel import Panel as RichPanel
+
+        has_context = bool(result.citations)
+
+        if has_context:
+            sources = sorted({c.source for c in result.citations})
+            tags = " ".join(
+                f"[{_SOURCE_COLORS.get(s, 'dim')}]{s}"
+                f"[/{_SOURCE_COLORS.get(s, 'dim')}]"
+                for s in sources
+            )
+            console.print(
+                f"\n  [green]\u25cf[/green] [dim]Context from:[/dim] "
+                f"{tags} [dim]({len(result.citations)} docs)[/dim]"
+            )
+        else:
+            console.print(
+                "\n  [yellow]\u25cb[/yellow] "
+                "[dim]No matching context \u2014 "
+                "answering from general knowledge[/dim]"
+            )
 
         console.print()
-        console.print(Markdown(result.answer))
-        console.print()
+        border = "green" if has_context else "yellow"
+        console.print(
+            RichPanel(
+                Markdown(result.answer),
+                border_style=border,
+                padding=(1, 2),
+            )
+        )
 
         if result.citations:
             console.print("[dim]Sources:[/dim]")
             for cite in result.citations:
-                console.print(f"  [dim]- {cite.title} ({cite.source})[/dim]")
+                color = _SOURCE_COLORS.get(cite.source, "dim")
+                console.print(
+                    f"  [dim]-[/dim] [{color}]{cite.source}"
+                    f"[/{color}] [dim]{cite.title}[/dim]"
+                )
 
         if result.suggested_followups:
             console.print("\n[dim]Follow-up questions:[/dim]")
             for q in result.suggested_followups:
                 console.print(f"  [cyan]- {q}[/cyan]")
         console.print()
+
+        await engine.close()
+
+    try:
+        asyncio.run(_run())
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
-        console.print("[dim]Ensure Ollama is running or an API key is configured.[/dim]")
-    finally:
-        asyncio.run(engine.close())
+        console.print(
+            "[dim]Ensure Ollama is running "
+            "or an API key is configured.[/dim]"
+        )
 
 
 @app.command()
@@ -1094,54 +1183,82 @@ def graph_entities(
     console.print(table)
 
 
-@graph_app.command("person")
-def graph_person(name: str) -> None:
-    """Show everything known about a person."""
+def _find_graph_node(
+    graph: Any, name: str, preferred_type: str | None = None,
+) -> str | None:
+    name_lower = name.lower()
+    if preferred_type:
+        candidate = f"{preferred_type}:{name_lower.replace(' ', '-')}"
+        if candidate in graph._graph:
+            return candidate
+    for nid, data in graph._graph.nodes(data=True):
+        if data.get("name", "").lower() == name_lower:
+            return nid
+    slug = name_lower.replace(" ", "-")
+    for nid in graph._graph.nodes:
+        if nid.endswith(f":{slug}"):
+            return nid
+    for nid, data in graph._graph.nodes(data=True):
+        if name_lower in data.get("name", "").lower():
+            return nid
+    return None
+
+
+def _show_graph_entity(name: str, preferred_type: str) -> None:
     from mneia.memory.graph import KnowledgeGraph
 
     graph = KnowledgeGraph()
-    node_id = f"person:{name.lower().replace(' ', '-')}"
-    result = graph.get_neighbors(node_id, depth=2)
-
-    if not result["nodes"]:
-        console.print(f"[yellow]No person found matching: {name}[/yellow]")
+    node_id = _find_graph_node(graph, name, preferred_type)
+    if not node_id:
+        console.print(f"[yellow]No entity found matching: {name}[/yellow]")
+        similar = []
+        for nid, data in graph._graph.nodes(data=True):
+            n = data.get("name", "")
+            if name.lower() in n.lower():
+                etype = data.get("entity_type", "unknown")
+                similar.append(f"{n} ({etype})")
+        if similar:
+            console.print("[dim]Similar entities:[/dim]")
+            for s in similar[:5]:
+                console.print(f"  [dim]- {s}[/dim]")
         return
 
-    console.print(Panel(f"[bold cyan]{name}[/bold cyan]", title="Person"))
+    node_data = graph._graph.nodes[node_id]
+    display_name = node_data.get("name", name)
+    etype = node_data.get("entity_type", "unknown")
+    label = f"[bold cyan]{display_name}[/bold cyan] [dim]({etype})[/dim]"
+    console.print(Panel(label, title=etype.title()))
+
+    props = node_data.get("properties", {})
+    if props.get("description"):
+        console.print(f"[dim]{props['description'][:200]}[/dim]")
+
+    result = graph.get_neighbors(node_id, depth=2)
     if result["edges"]:
         table = Table(show_header=True)
         table.add_column("Relationship", style="green")
         table.add_column("Entity", style="cyan")
         for edge in result["edges"]:
             other = edge["target"] if edge["source"] == node_id else edge["source"]
-            other_name = other.split(":", 1)[-1].replace("-", " ").title()
+            other_data = graph._graph.nodes.get(other, {})
+            fallback = other.split(":", 1)[-1].replace("-", " ").title()
+            other_name = other_data.get("name", fallback)
             table.add_row(edge["relation"], other_name)
         console.print(table)
+    else:
+        console.print("[dim]No relationships found.[/dim]")
+
+
+@graph_app.command("person")
+def graph_person(name: str) -> None:
+    """Show everything known about a person."""
+    _show_graph_entity(name, "person")
 
 
 @graph_app.command("topic")
 def graph_topic(name: str) -> None:
     """Show everything known about a topic."""
-    from mneia.memory.graph import KnowledgeGraph
-
-    graph = KnowledgeGraph()
-    node_id = f"topic:{name.lower().replace(' ', '-')}"
-    result = graph.get_neighbors(node_id, depth=2)
-
-    if not result["nodes"]:
-        console.print(f"[yellow]No topic found matching: {name}[/yellow]")
-        return
-
-    console.print(Panel(f"[bold cyan]{name}[/bold cyan]", title="Topic"))
-    if result["edges"]:
-        table = Table(show_header=True)
-        table.add_column("Relationship", style="green")
-        table.add_column("Entity", style="cyan")
-        for edge in result["edges"]:
-            other = edge["target"] if edge["source"] == node_id else edge["source"]
-            other_name = other.split(":", 1)[-1].replace("-", " ").title()
-            table.add_row(edge["relation"], other_name)
-        console.print(table)
+    _show_graph_entity(name, "topic")
 
 
 @graph_app.command("export")

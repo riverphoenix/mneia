@@ -198,20 +198,50 @@ class MemoryStore:
             return '""'
         return " OR ".join(f'"{t}"' for t in tokens)
 
-    async def search(self, query: str, limit: int = 10) -> list[StoredDocument]:
+    async def search(
+        self,
+        query: str,
+        limit: int = 10,
+        source: str | None = None,
+        sources: list[str] | None = None,
+    ) -> list[StoredDocument]:
         conn = self._get_conn()
         try:
             fts_query = self._sanitize_fts_query(query)
-            cursor = conn.execute(
-                """
-                SELECT d.* FROM documents d
-                JOIN documents_fts fts ON d.id = fts.rowid
-                WHERE documents_fts MATCH ?
-                ORDER BY rank
-                LIMIT ?
-                """,
-                (fts_query, limit),
-            )
+            if source:
+                cursor = conn.execute(
+                    """
+                    SELECT d.* FROM documents d
+                    JOIN documents_fts fts ON d.id = fts.rowid
+                    WHERE documents_fts MATCH ? AND d.source = ?
+                    ORDER BY rank
+                    LIMIT ?
+                    """,
+                    (fts_query, source, limit),
+                )
+            elif sources:
+                placeholders = ",".join("?" for _ in sources)
+                cursor = conn.execute(
+                    f"""
+                    SELECT d.* FROM documents d
+                    JOIN documents_fts fts ON d.id = fts.rowid
+                    WHERE documents_fts MATCH ? AND d.source IN ({placeholders})
+                    ORDER BY rank
+                    LIMIT ?
+                    """,
+                    (fts_query, *sources, limit),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT d.* FROM documents d
+                    JOIN documents_fts fts ON d.id = fts.rowid
+                    WHERE documents_fts MATCH ?
+                    ORDER BY rank
+                    LIMIT ?
+                    """,
+                    (fts_query, limit),
+                )
             return [self._row_to_doc(row) for row in cursor.fetchall()]
         finally:
             conn.close()

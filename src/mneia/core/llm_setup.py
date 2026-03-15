@@ -206,13 +206,23 @@ CONNECTOR_HELP: dict[str, dict[str, str]] = {
             "2. Run mneia connector sync audio_transcription."
         ),
     },
-    "live_audio": {
-        "description": "Real-time audio capture and transcription.",
-        "prerequisites": "Install audio extras: pip install 'mneia[audio]'",
-        "setup_help": "Select your audio input device.",
+    "local_folders": {
+        "description": "Scan and monitor local directories for text, code, and PDF files.",
+        "prerequisites": "One or more local directories to scan. Optional: pip install 'mneia[search]' for BM25 search.",
+        "setup_help": "You'll provide folder paths to scan. Optionally configure file extensions and exclusion patterns.",
         "next_steps": (
-            "1. Start with: mneia connector start-agent live_audio\n"
-            "2. Speak and transcriptions are stored automatically."
+            "1. Start the daemon: mneia start -d\n"
+            "2. Documents will be indexed automatically.\n"
+            "3. For enhanced search: pip install 'mneia[search]'"
+        ),
+    },
+    "granola": {
+        "description": "Read meeting notes from Granola.",
+        "prerequisites": "Granola app installed with notes exported as markdown.",
+        "setup_help": "Point to the directory where Granola saves meeting notes.",
+        "next_steps": (
+            "1. Start the daemon with: mneia start\n"
+            "2. Meeting notes are synced automatically."
         ),
     },
     "apple_notes": {

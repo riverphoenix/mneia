@@ -111,3 +111,77 @@ def test_slash_commands_complete():
     ]
     for cmd in expected:
         assert cmd in SLASH_COMMANDS, f"Missing command: {cmd}"
+
+
+def test_session_init(session):
+    assert session.config is not None
+    assert hasattr(session, "_ollama_available")
+
+
+def test_handle_command_exit(session):
+    result = session._handle_command("/exit")
+    assert result is False
+
+
+def test_handle_command_clear(session):
+    result = session._handle_command("/clear")
+    assert result is True
+
+
+def test_cmd_ask_no_llm(session, capsys):
+    session._ollama_available = False
+    session._cmd_ask("test question")
+
+
+def test_cmd_chat_no_llm(session, capsys):
+    session._ollama_available = False
+    session._cmd_chat()
+
+
+def test_detect_source_hints_calendar():
+    from mneia.interactive import InteractiveSession
+
+    hints = InteractiveSession._detect_source_hints("what meetings do I have today")
+    assert hints is not None
+    assert "google-calendar" in hints
+
+
+def test_detect_source_hints_email():
+    from mneia.interactive import InteractiveSession
+
+    hints = InteractiveSession._detect_source_hints("show me recent emails")
+    assert hints is not None
+    assert "gmail" in hints
+
+
+def test_detect_source_hints_meeting():
+    from mneia.interactive import InteractiveSession
+
+    hints = InteractiveSession._detect_source_hints("what was said in the conversation")
+    assert hints is not None
+    assert "granola" in hints
+
+
+def test_detect_source_hints_drive():
+    from mneia.interactive import InteractiveSession
+
+    hints = InteractiveSession._detect_source_hints("find the google doc about strategy")
+    assert hints is not None
+    assert "google-drive" in hints
+
+
+def test_detect_source_hints_none():
+    from mneia.interactive import InteractiveSession
+
+    hints = InteractiveSession._detect_source_hints("tell me about quantum physics")
+    assert hints is None
+
+
+def test_detect_source_hints_multiple():
+    from mneia.interactive import InteractiveSession
+
+    hints = InteractiveSession._detect_source_hints(
+        "what was discussed in the meeting transcript"
+    )
+    assert hints is not None
+    assert "granola" in hints

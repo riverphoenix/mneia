@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession
@@ -18,6 +21,7 @@ from rich.text import Text
 from mneia import __version__
 from mneia.config import MNEIA_DIR, MneiaConfig, ensure_dirs
 
+logger = logging.getLogger(__name__)
 console = Console()
 
 BANNER = r"""[bold cyan]
@@ -121,8 +125,36 @@ class InteractiveSession:
             except EOFError:
                 console.print("\n[dim]Goodbye.[/dim]")
                 break
+            except Exception as e:
+                console.print(f"\n[red]Error: {e}[/red]\n")
+                continue
 
     def _check_ollama_status(self) -> None:
+        provider = self.config.llm.provider
+
+        if provider != "ollama":
+            has_key = (
+                (provider == "anthropic" and self.config.llm.anthropic_api_key)
+                or (provider == "openai" and self.config.llm.openai_api_key)
+                or (provider == "google" and self.config.llm.google_api_key)
+            )
+            if has_key:
+                self._ollama_available = True
+                model = self.config.llm.model
+                console.print(
+                    f"  [green]●[/green] [dim]LLM ready"
+                    f" ([cyan]{model}[/cyan] via {provider})[/dim]"
+                )
+            else:
+                self._ollama_available = False
+                console.print(
+                    f"  [red]●[/red] [dim]No API key configured for {provider}[/dim]"
+                )
+                console.print(
+                    "    [dim]Run [cyan]/config[/cyan] to set your API key[/dim]"
+                )
+            return
+
         import httpx
 
         try:
@@ -153,18 +185,14 @@ class InteractiveSession:
                 self._ollama_available = False
         except Exception:
             self._ollama_available = False
-            console.print("  [red]●[/red] [dim]Ollama not running — conversational mode unavailable[/dim]")
+            console.print(
+                "  [red]●[/red] [dim]Ollama not running — conversational mode unavailable[/dim]"
+            )
             console.print("    [dim]To enable, install and start Ollama:[/dim]")
             console.print("    [dim]  brew install ollama[/dim]")
             console.print("    [dim]  ollama serve[/dim]")
-            console.print(f"    [dim]  ollama pull {self.config.llm.model}[/dim]")
-
-        if self.config.llm.provider != "ollama" and (
-            self.config.llm.anthropic_api_key or self.config.llm.openai_api_key
-        ):
-            self._ollama_available = True
             console.print(
-                f"  [green]●[/green] [dim]LLM ready ([cyan]{self.config.llm.model}[/cyan] via {self.config.llm.provider})[/dim]"
+                f"    [dim]  ollama pull {self.config.llm.model}[/dim]"
             )
 
     def _show_quick_status(self) -> None:
@@ -346,7 +374,7 @@ class InteractiveSession:
         if self._ollama_available:
             console.print("[dim]Or just type a question to chat with your knowledge.[/dim]")
         else:
-            console.print("[dim]Enable Ollama to ask questions in natural language.[/dim]")
+            console.print("[dim]Configure an LLM to ask questions in natural language.[/dim]")
         console.print()
 
     def _cmd_status(self) -> None:
@@ -581,37 +609,53 @@ class InteractiveSession:
             console.print("[dim]Daemon is not running.[/dim]")
 
     def _cmd_extract(self, limit: int = 50) -> None:
-        from mneia.core.llm import LLMClient
-        from mneia.memory.graph import KnowledgeGraph
-        from mneia.memory.store import MemoryStore
-        from mneia.pipeline.extract import extract_and_store
-
-        store = MemoryStore()
-        graph = KnowledgeGraph()
-        llm = LLMClient(self.config.llm)
-
         async def _run() -> None:
-            docs = await store.get_unprocessed(limit=limit)
-            if not docs:
-                console.print("[dim]No unprocessed documents.[/dim]")
-                return
-            console.print(f"[cyan]Extracting from {len(docs)} documents...[/cyan]")
-            total_e, total_r = 0, 0
-            for i, doc in enumerate(docs, 1):
-                console.print(f"  [{i}/{len(docs)}] {doc.title[:50]}...", end="")
-                try:
-                    result = await extract_and_store(doc, llm, store, graph)
-                    total_e += result["entities"]
-                    total_r += result["relationships"]
-                    console.print(f" [green]OK[/green] {result['entities']}E {result['relationships']}R")
-                except Exception as e:
-                    console.print(f" [red]{e}[/red]")
-            console.print(f"\n[green]Extracted {total_e} entities, {total_r} relationships[/green]")
+            from mneia.core.llm import LLMClient
+            from mneia.memory.graph import KnowledgeGraph
+            from mneia.memory.store import MemoryStore
+            from mneia.pipeline.extract import extract_and_store
 
-        try:
-            asyncio.run(_run())
-        finally:
-            asyncio.run(llm.close())
+            store = MemoryStore()
+            graph = KnowledgeGraph()
+            llm = LLMClient(self.config.llm)
+
+            try:
+                docs = await store.get_unprocessed(limit=limit)
+                if not docs:
+                    console.print("[dim]No unprocessed documents.[/dim]")
+                    return
+                console.print(
+                    f"[cyan]Extracting from {len(docs)} "
+                    f"documents...[/cyan]"
+                )
+                total_e, total_r = 0, 0
+                for i, doc in enumerate(docs, 1):
+                    title = doc.title[:50]
+                    console.print(
+                        f"  [{i}/{len(docs)}] {title}...",
+                        end="",
+                    )
+                    try:
+                        result = await extract_and_store(
+                            doc, llm, store, graph,
+                        )
+                        total_e += result["entities"]
+                        total_r += result["relationships"]
+                        e = result["entities"]
+                        r = result["relationships"]
+                        console.print(
+                            f" [green]OK[/green] {e}E {r}R"
+                        )
+                    except Exception as e:
+                        console.print(f" [red]{e}[/red]")
+                console.print(
+                    f"\n[green]Extracted {total_e} entities, "
+                    f"{total_r} relationships[/green]"
+                )
+            finally:
+                await llm.close()
+
+        asyncio.run(_run())
 
     def _cmd_graph(self) -> None:
         from mneia.memory.graph import KnowledgeGraph
@@ -635,152 +679,385 @@ class InteractiveSession:
             desc = data.get("properties", {}).get("description", "")
             console.print(f"  [cyan]{name}[/cyan] [dim]({etype})[/dim] {desc[:60]}")
 
-    def _cmd_graph_person(self, name: str) -> None:
+    @staticmethod
+    def _find_graph_node(
+        graph: Any, name: str, preferred_type: str | None = None,
+    ) -> str | None:
+        name_lower = name.lower()
+        if preferred_type:
+            candidate = f"{preferred_type}:{name_lower.replace(' ', '-')}"
+            if candidate in graph._graph:
+                return candidate
+        for nid, data in graph._graph.nodes(data=True):
+            if data.get("name", "").lower() == name_lower:
+                return nid
+        slug = name_lower.replace(" ", "-")
+        for nid in graph._graph.nodes:
+            if nid.endswith(f":{slug}"):
+                return nid
+        for nid, data in graph._graph.nodes(data=True):
+            if name_lower in data.get("name", "").lower():
+                return nid
+        return None
+
+    def _show_graph_entity(self, name: str, preferred_type: str) -> None:
         from mneia.memory.graph import KnowledgeGraph
 
         graph = KnowledgeGraph()
-        node_id = f"person:{name.lower().replace(' ', '-')}"
-        result = graph.get_neighbors(node_id, depth=2)
-        if not result["nodes"]:
-            console.print(f"[yellow]No person found: {name}[/yellow]")
+        node_id = self._find_graph_node(graph, name, preferred_type)
+        if not node_id:
+            console.print(f"[yellow]No entity found: {name}[/yellow]")
+            all_names = []
+            for nid, data in graph._graph.nodes(data=True):
+                n = data.get("name", "")
+                if name.lower() in n.lower():
+                    etype = data.get("entity_type", "unknown")
+                    all_names.append(f"{n} ({etype})")
+            if all_names:
+                console.print("[dim]Similar entities:[/dim]")
+                for n in all_names[:5]:
+                    console.print(f"  [dim]- {n}[/dim]")
             return
-        console.print(f"\n  [bold cyan]{name}[/bold cyan]")
-        for edge in result["edges"]:
-            other = edge["target"] if edge["source"] == node_id else edge["source"]
-            other_name = other.split(":", 1)[-1].replace("-", " ").title()
-            console.print(f"    [green]{edge['relation']}[/green] → {other_name}")
+
+        node_data = graph._graph.nodes[node_id]
+        display_name = node_data.get("name", name)
+        etype = node_data.get("entity_type", "unknown")
+        console.print(f"\n  [bold cyan]{display_name}[/bold cyan] [dim]({etype})[/dim]")
+
+        props = node_data.get("properties", {})
+        if props.get("description"):
+            console.print(f"  [dim]{props['description'][:200]}[/dim]")
+        if props.get("source"):
+            console.print(f"  [dim]Source: {props['source']}[/dim]")
+
+        result = graph.get_neighbors(node_id, depth=2)
+        if result["edges"]:
+            for edge in result["edges"]:
+                other = edge["target"] if edge["source"] == node_id else edge["source"]
+                other_data = graph._graph.nodes.get(other, {})
+                fallback = other.split(":", 1)[-1].replace("-", " ").title()
+                other_name = other_data.get("name", fallback)
+                console.print(f"    [green]{edge['relation']}[/green] → {other_name}")
+        else:
+            console.print("  [dim]No relationships found.[/dim]")
+
+    def _cmd_graph_person(self, name: str) -> None:
+        self._show_graph_entity(name, "person")
 
     def _cmd_graph_topic(self, name: str) -> None:
-        from mneia.memory.graph import KnowledgeGraph
-
-        graph = KnowledgeGraph()
-        node_id = f"topic:{name.lower().replace(' ', '-')}"
-        result = graph.get_neighbors(node_id, depth=2)
-        if not result["nodes"]:
-            console.print(f"[yellow]No topic found: {name}[/yellow]")
-            return
-        console.print(f"\n  [bold cyan]{name}[/bold cyan]")
-        for edge in result["edges"]:
-            other = edge["target"] if edge["source"] == node_id else edge["source"]
-            other_name = other.split(":", 1)[-1].replace("-", " ").title()
-            console.print(f"    [green]{edge['relation']}[/green] → {other_name}")
+        self._show_graph_entity(name, "topic")
 
     def _cmd_context_generate(self) -> None:
-        from mneia.core.llm import LLMClient
-        from mneia.memory.graph import KnowledgeGraph
-        from mneia.memory.store import MemoryStore
-        from mneia.pipeline.generate import generate_context_files
+        if not self._ollama_available:
+            console.print(
+                "[yellow]LLM not configured. "
+                "Run /config to set up.[/yellow]"
+            )
+            return
 
-        store = MemoryStore()
-        graph = KnowledgeGraph()
-        llm = LLMClient(self.config.llm)
+        output_dir = self.config.context_output_dir
+        console.print(
+            f"[cyan]Generating context files "
+            f"→ [bold]{output_dir}[/bold][/cyan]"
+        )
 
-        console.print("[cyan]Generating context files...[/cyan]")
+        def on_progress(msg: str) -> None:
+            console.print(f"  [dim]{msg}[/dim]")
+
+        async def _run() -> list[str]:
+            from mneia.core.llm import LLMClient
+            from mneia.memory.graph import KnowledgeGraph
+            from mneia.memory.store import MemoryStore
+            from mneia.pipeline.generate import generate_context_files
+
+            store = MemoryStore()
+            graph = KnowledgeGraph()
+            llm = LLMClient(self.config.llm)
+
+            try:
+                stats = await store.get_stats()
+                total_docs = stats.get("total_documents", 0)
+                graph_stats = graph.get_stats()
+                total_nodes = graph_stats.get("total_nodes", 0)
+                console.print(
+                    f"  [dim]{total_docs} documents, "
+                    f"{total_nodes} graph nodes[/dim]"
+                )
+                if total_docs == 0:
+                    console.print(
+                        "[yellow]No documents ingested yet. "
+                        "Sync a connector first.[/yellow]"
+                    )
+                    return []
+
+                return await generate_context_files(
+                    self.config, store, graph, llm,
+                    on_progress=on_progress,
+                )
+            finally:
+                await llm.close()
+
         try:
-            generated = asyncio.run(generate_context_files(self.config, store, graph, llm))
+            generated = asyncio.run(_run())
             if generated:
                 for name in generated:
-                    console.print(f"  [green]OK[/green] {name}")
-                console.print(f"\n[green]Generated {len(generated)} file(s)[/green]")
+                    path = Path(output_dir) / name
+                    console.print(
+                        f"  [green]OK[/green] {path}"
+                    )
+                console.print(
+                    f"\n[green]Generated {len(generated)} "
+                    f"file(s) in {output_dir}[/green]"
+                )
             else:
-                console.print("[yellow]No files generated.[/yellow]")
+                console.print(
+                    "[yellow]No files generated — "
+                    "check templates exist or sync data first.[/yellow]"
+                )
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
-        finally:
-            asyncio.run(llm.close())
+            logger.exception("Context generation failed")
+
+    @staticmethod
+    def _build_system_prompt(
+        include_commands: bool = False,
+        commands_dict: dict[str, Any] | None = None,
+    ) -> str:
+        local_now = datetime.now()
+        date_str = local_now.strftime("%A, %B %d, %Y")
+        time_str = local_now.strftime("%H:%M")
+        parts = [
+            "You are mneia (\u03bc\u03bd\u03b5\u03af\u03b1 — Greek for 'memory'), "
+            "a personal knowledge assistant that continuously learns from the user's "
+            "digital life. You have access to their calendar events, emails, documents, "
+            "notes, audio transcripts, and web research — all ingested from connected "
+            "sources and organised into a searchable knowledge base with a knowledge graph "
+            "of entities and relationships.\n\n"
+            f"Current date and time: {date_str}, {time_str} (local time)\n\n"
+            "YOUR ROLE:\n"
+            "- Help the user understand, recall, and connect information across their "
+            "personal knowledge base.\n"
+            "- Answer questions using the provided context from their documents, meetings, "
+            "emails, notes, and knowledge graph.\n"
+            "- When context is available, always ground your answers in it — reference "
+            "specific document titles, people, dates, and sources.\n"
+            "- When no relevant context is found, say so honestly and offer to help "
+            "in a general capacity.\n"
+            "- Be concise, direct, and helpful. Avoid filler.\n"
+            "- For time-relative questions ('tomorrow', 'next week', 'yesterday'), "
+            "use the current date above to calculate the correct dates.\n"
+            "- Suggest 2-3 follow-up questions the user could ask, "
+            "prefixed with 'You could also ask:'\n"
+            "- If the user's question is ambiguous, ask a clarifying question.",
+        ]
+        if include_commands and commands_dict:
+            cmd_lines = "\n".join(
+                f"- {cmd}: {info['desc']}"
+                for cmd, info in commands_dict.items()
+                if cmd not in ("/help", "/clear", "/exit")
+            )
+            parts.append(
+                "\n\nIf the user's request would be better served by running a "
+                "command, include a line starting with COMMAND: followed by the "
+                f"slash command.\n\nAvailable commands:\n{cmd_lines}"
+            )
+        return "\n".join(parts)
+
+    @staticmethod
+    def _detect_source_hints(question: str) -> list[str] | None:
+        q = question.lower()
+        source_keywords: dict[str, list[str]] = {
+            "google-calendar": [
+                "calendar", "meeting", "meetings", "event", "events",
+                "schedule", "appointment", "standup", "sync", "1:1",
+                "one-on-one", "invite",
+            ],
+            "gmail": [
+                "email", "emails", "mail", "inbox", "gmail",
+                "message", "thread", "sent",
+            ],
+            "google-drive": [
+                "drive", "doc", "docs", "sheet", "sheets",
+                "slide", "slides", "google doc",
+            ],
+            "granola": [
+                "meeting", "meeting notes", "transcript",
+                "transcription", "conversation", "said",
+            ],
+        }
+        matched = []
+        for source, keywords in source_keywords.items():
+            if any(kw in q for kw in keywords):
+                matched.append(source)
+        return matched if matched else None
 
     def _cmd_ask(self, question: str) -> None:
         if not self._ollama_available:
-            console.print("[yellow]LLM not available. Start Ollama or configure an API key.[/yellow]")
+            console.print(
+                "[yellow]LLM not configured. "
+                "Run /config to set up.[/yellow]"
+            )
             return
 
         from mneia.core.llm import LLMClient
         from mneia.memory.store import MemoryStore
 
-        store = MemoryStore()
-        results = asyncio.run(store.search(question, limit=5))
+        async def _run() -> None:
+            store = MemoryStore()
+            llm = LLMClient(self.config.llm)
+            try:
+                source_hints = self._detect_source_hints(question)
 
-        context_parts = []
-        for doc in results:
-            context_parts.append(f"[{doc.title} — {doc.source}]\n{doc.content[:1500]}")
+                results = await store.search(
+                    question, limit=5, sources=source_hints,
+                )
+                if not results and source_hints:
+                    results = await store.search(question, limit=5)
 
-        context_block = "\n\n---\n\n".join(context_parts) if context_parts else "No relevant documents found."
-
-        system = (
-            "You are mneia, a personal knowledge assistant. "
-            "Answer based on the provided context from the user's documents. "
-            "Be concise, direct, and helpful. Reference specific documents when possible."
-        )
-        prompt = f"Context:\n\n{context_block}\n\nQuestion: {question}"
-
-        llm = LLMClient(self.config.llm)
-        try:
-            response = asyncio.run(llm.generate(prompt, system=system))
-            console.print()
-            md = Markdown(response)
-            console.print(Panel(md, border_style="cyan", padding=(1, 2)))
-            if results:
-                console.print("[dim]Sources:[/dim]")
+                has_context = bool(results)
+                source_set: set[str] = set()
+                context_parts = []
                 for doc in results:
-                    console.print(f"  [dim]- {doc.title} ({doc.source})[/dim]")
-            console.print()
+                    source_set.add(doc.source)
+                    context_parts.append(
+                        f"[{doc.title} \u2014 {doc.source}]\n"
+                        f"{doc.content[:1500]}"
+                    )
+
+                if has_context:
+                    tags = " ".join(
+                        self._format_source_tag(s)
+                        for s in sorted(source_set)
+                    )
+                    console.print(
+                        f"\n  [green]\u25cf[/green] "
+                        f"[dim]Context from:[/dim] {tags} "
+                        f"[dim]({len(results)} docs)[/dim]"
+                    )
+                else:
+                    console.print(
+                        "\n  [yellow]\u25cb[/yellow] "
+                        "[dim]No matching context "
+                        "\u2014 answering from general knowledge[/dim]"
+                    )
+
+                context_block = (
+                    "\n\n---\n\n".join(context_parts)
+                    if context_parts
+                    else "No relevant documents found."
+                )
+
+                system = self._build_system_prompt()
+                prompt = (
+                    f"Context:\n\n{context_block}\n\n"
+                    f"Question: {question}"
+                )
+
+                with console.status(
+                    "[dim italic]Thinking...[/dim italic]",
+                    spinner="dots",
+                ):
+                    response = await llm.generate(
+                        prompt, system=system,
+                    )
+
+                console.print()
+                border = "green" if has_context else "yellow"
+                md = Markdown(response)
+                console.print(
+                    Panel(md, border_style=border, padding=(1, 2))
+                )
+                if has_context:
+                    console.print("[dim]Sources:[/dim]")
+                    for doc in results:
+                        tag = self._format_source_tag(doc.source)
+                        console.print(
+                            f"  [dim]-[/dim] {tag} "
+                            f"[dim]{doc.title}[/dim]"
+                        )
+                console.print()
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+            finally:
+                await llm.close()
+
+        try:
+            asyncio.run(_run())
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
-        finally:
-            asyncio.run(llm.close())
 
     def _cmd_chat(self) -> None:
         if not self._ollama_available:
-            console.print("[yellow]LLM not available. Start Ollama or configure an API key.[/yellow]")
+            console.print(
+                "[yellow]LLM not configured. Run /config to set up.[/yellow]"
+            )
             return
 
         from mneia.conversation import ConversationEngine
 
-        engine = ConversationEngine(self.config)
         chat_session: PromptSession[str] = PromptSession()
-        console.print("[cyan]Chat mode. Type 'exit' to return. History preserved across turns.[/cyan]\n")
+        console.print(
+            "[cyan]Chat mode. Type 'exit' to return. "
+            "History preserved across turns.[/cyan]\n"
+        )
 
-        try:
-            while True:
-                try:
-                    question = chat_session.prompt(
-                        HTML("<ansigray>  you ›</ansigray> "),
-                    ).strip()
-                    if not question:
+        async def _chat_loop() -> None:
+            engine = ConversationEngine(self.config)
+            try:
+                while True:
+                    try:
+                        question = chat_session.prompt(
+                            HTML("<ansigray>  you ›</ansigray> "),
+                        ).strip()
+                        if not question:
+                            continue
+                        if question.lower() in ("exit", "quit", "/exit"):
+                            break
+                        if question.lower() == "clear":
+                            engine.clear_history()
+                            console.print(
+                                "[dim]  Conversation cleared.[/dim]\n"
+                            )
+                            continue
+
+                        with console.status(
+                            "[dim italic]Thinking...[/dim italic]",
+                            spinner="dots",
+                        ):
+                            result = await engine.ask(question)
+
+                        console.print()
+                        md = Markdown(result.answer)
+                        console.print(
+                            Panel(md, border_style="cyan", padding=(1, 2))
+                        )
+
+                        if result.citations:
+                            console.print("[dim]  Sources:[/dim]")
+                            for cite in result.citations:
+                                console.print(
+                                    f"    [dim]- {cite.title} "
+                                    f"({cite.source})[/dim]"
+                                )
+
+                        if result.suggested_followups:
+                            console.print(
+                                "\n[dim]  You could also ask:[/dim]"
+                            )
+                            for q in result.suggested_followups:
+                                console.print(f"    [cyan]- {q}[/cyan]")
+                        console.print()
+
+                    except KeyboardInterrupt:
+                        console.print()
                         continue
-                    if question.lower() in ("exit", "quit", "/exit"):
+                    except EOFError:
                         break
-                    if question.lower() == "clear":
-                        engine.clear_history()
-                        console.print("[dim]  Conversation cleared.[/dim]\n")
-                        continue
+            finally:
+                await engine.close()
+                console.print("[dim]  Back to mneia.[/dim]\n")
 
-                    with console.status("[dim italic]Thinking...[/dim italic]", spinner="dots"):
-                        result = asyncio.run(engine.ask(question))
-
-                    console.print()
-                    md = Markdown(result.answer)
-                    console.print(Panel(md, border_style="cyan", padding=(1, 2)))
-
-                    if result.citations:
-                        console.print("[dim]  Sources:[/dim]")
-                        for cite in result.citations:
-                            console.print(f"    [dim]- {cite.title} ({cite.source})[/dim]")
-
-                    if result.suggested_followups:
-                        console.print("\n[dim]  You could also ask:[/dim]")
-                        for q in result.suggested_followups:
-                            console.print(f"    [cyan]- {q}[/cyan]")
-                    console.print()
-
-                except KeyboardInterrupt:
-                    console.print()
-                    continue
-                except EOFError:
-                    break
-        finally:
-            asyncio.run(engine.close())
-            console.print("[dim]  Back to mneia.[/dim]\n")
+        asyncio.run(_chat_loop())
 
     def _cmd_agent_stats(self) -> None:
         from datetime import datetime
@@ -837,8 +1114,23 @@ class InteractiveSession:
 
     def _cmd_connector_setup(self, name: str) -> None:
         from mneia.config import ConnectorConfig
-        from mneia.connectors import create_connector
+        from mneia.connectors import MULTI_ACCOUNT_CONNECTORS, create_connector
         from mneia.core.llm_setup import get_connector_help
+
+        account_name = ""
+        base_name = name
+        if name in MULTI_ACCOUNT_CONNECTORS:
+            existing = [
+                k for k in self.config.connectors
+                if k == name or k.startswith(f"{name}-")
+            ]
+            if existing:
+                console.print(f"\n  [dim]Existing {name} accounts: {', '.join(existing)}[/dim]")
+            account_name = input(
+                "  Account name (e.g. 'work', 'personal', or Enter for default): "
+            ).strip()
+            if account_name:
+                name = f"{base_name}-{account_name}"
 
         connector = create_connector(name)
         if not connector:
@@ -846,9 +1138,11 @@ class InteractiveSession:
             return
 
         manifest = connector.manifest
-        help_info = get_connector_help(name)
+        help_info = get_connector_help(base_name)
 
         console.print(f"\n  [bold]{manifest.display_name}[/bold]")
+        if account_name:
+            console.print(f"  [dim]Account: {account_name}[/dim]")
         if help_info:
             console.print(f"  [dim]{help_info['description']}[/dim]\n")
             console.print("  [bold]Prerequisites:[/bold]")
@@ -862,12 +1156,22 @@ class InteractiveSession:
         if name not in self.config.connectors:
             self.config.connectors[name] = ConnectorConfig(enabled=True)
 
-        settings = connector.interactive_setup()
+        if hasattr(connector, "interactive_setup"):
+            import inspect
+            sig = inspect.signature(connector.interactive_setup)
+            if "account" in sig.parameters:
+                settings = connector.interactive_setup(account=account_name)
+            else:
+                settings = connector.interactive_setup()
+        else:
+            settings = {}
+
         self.config.connectors[name].settings = settings
         self.config.connectors[name].enabled = True
         self.config.save()
 
-        console.print(f"\n  [green]{manifest.display_name} configured and enabled![/green]")
+        label = f"{manifest.display_name} ({account_name})" if account_name else manifest.display_name
+        console.print(f"\n  [green]{label} configured and enabled![/green]")
         if help_info:
             console.print("\n  [bold]Next steps:[/bold]")
             for line in help_info["next_steps"].split("\n"):
@@ -1097,15 +1401,20 @@ class InteractiveSession:
         console.print("  [bold]Available connectors:[/bold]\n")
         for i, n in enumerate(not_started, 1):
             console.print(f"  [{i}] {n}")
-        console.print("  [a] Start all")
+        console.print(f"  [{len(not_started) + 1}] Start all")
         console.print()
         choice = input("  Choice: ").strip()
 
         if choice.lower() == "a":
             for n in not_started:
                 self._cmd_connector_start(n)
-        elif choice.isdigit() and 1 <= int(choice) <= len(not_started):
-            self._cmd_connector_start(not_started[int(choice) - 1])
+        elif choice.isdigit():
+            idx = int(choice)
+            if idx == len(not_started) + 1:
+                for n in not_started:
+                    self._cmd_connector_start(n)
+            elif 1 <= idx <= len(not_started):
+                self._cmd_connector_start(not_started[idx - 1])
 
     def _cmd_agent_stop_interactive(self) -> None:
         from mneia.core.lifecycle import send_command
@@ -1200,100 +1509,168 @@ class InteractiveSession:
 
         return None, ""
 
+    @staticmethod
+    def _format_source_tag(source: str) -> str:
+        colors: dict[str, str] = {
+            "google-calendar": "bright_green",
+            "gmail": "bright_blue",
+            "google-drive": "bright_yellow",
+            "granola": "bright_magenta",
+            "local-folders": "green",
+            "obsidian": "bright_cyan",
+            "web": "bright_white",
+            "knowledge-agent": "bright_red",
+            "autonomous-insight": "bright_red",
+        }
+        color = colors.get(source, "dim")
+        if color == "dim":
+            for base, c in colors.items():
+                if source.startswith(f"{base}-"):
+                    color = c
+                    break
+        return f"[{color}]{source}[/{color}]"
+
     def _handle_conversation(self, user_input: str) -> None:
         intent, intent_arg = self._detect_intent(user_input)
         if intent:
-            console.print(f"  [dim]→ Running /{intent} {intent_arg}[/dim]")
+            console.print(
+                f"  [dim]\u2192 Running /{intent} {intent_arg}[/dim]"
+            )
             cmd_str = f"/{intent} {intent_arg}".strip()
             self._handle_command(cmd_str)
             return
 
         if not self._ollama_available:
             console.print("[yellow]LLM not available.[/yellow]")
-            console.print("[dim]Start Ollama or configure an API key in [cyan]/config[/cyan][/dim]")
+            console.print(
+                "[dim]Run [cyan]/config[/cyan] to set up an LLM[/dim]"
+            )
             self._suggest_commands(user_input)
             return
 
         from mneia.core.llm import LLMClient
         from mneia.memory.store import MemoryStore
 
-        store = MemoryStore()
+        async def _run() -> None:
+            store = MemoryStore()
+            llm = LLMClient(self.config.llm)
+            try:
+                source_hints = self._detect_source_hints(user_input)
 
-        with console.status(f"[dim italic]{_get_thinking_phrase()}[/dim italic]", spinner="dots"):
-            search_results = asyncio.run(store.search(user_input, limit=5))
+                search_results = await store.search(
+                    user_input, limit=5, sources=source_hints,
+                )
+                if not search_results and source_hints:
+                    search_results = await store.search(
+                        user_input, limit=5,
+                    )
 
-        context_parts: list[str] = []
-        if search_results:
-            console.print(f"  [dim]Found {len(search_results)} relevant documents[/dim]")
-            for doc in search_results:
-                context_parts.append(
-                    f"[Source: {doc.source}, Title: {doc.title}]\n{doc.content[:1500]}"
+                has_context = bool(search_results)
+                context_parts: list[str] = []
+                source_set: set[str] = set()
+
+                if search_results:
+                    for doc in search_results:
+                        source_set.add(doc.source)
+                        context_parts.append(
+                            f"[Source: {doc.source}, "
+                            f"Title: {doc.title}]\n"
+                            f"{doc.content[:1500]}"
+                        )
+
+                if has_context:
+                    tags = " ".join(
+                        self._format_source_tag(s) for s in sorted(source_set)
+                    )
+                    console.print(
+                        f"\n  [green]\u25cf[/green] [dim]Context from:[/dim] "
+                        f"{tags} "
+                        f"[dim]({len(search_results)} docs)[/dim]"
+                    )
+                else:
+                    console.print(
+                        "\n  [yellow]\u25cb[/yellow] "
+                        "[dim]No matching context found "
+                        "\u2014 answering from general knowledge[/dim]"
+                    )
+
+                context_block = (
+                    "\n\n---\n\n".join(context_parts)
+                    if context_parts
+                    else "No relevant documents found."
                 )
 
-        context_block = "\n\n---\n\n".join(context_parts) if context_parts else "No relevant documents found."
+                system_prompt = self._build_system_prompt(
+                    include_commands=True,
+                    commands_dict=SLASH_COMMANDS,
+                )
 
-        available_commands = "\n".join(
-            f"- {cmd}: {info['desc']}" for cmd, info in SLASH_COMMANDS.items()
-            if cmd not in ("/help", "/clear", "/exit")
-        )
+                prompt = (
+                    f"Context from your knowledge base:\n\n"
+                    f"{context_block}\n\n"
+                    f"Question: {user_input}"
+                )
 
-        system_prompt = (
-            "You are mneia, a personal knowledge assistant. "
-            "You help the user understand their own knowledge, notes, meetings, and work. "
-            "Answer based on the provided context from the user's documents. "
-            "Be concise, direct, and helpful. "
-            "If the context doesn't contain relevant information, say so honestly. "
-            "Reference specific documents when possible.\n\n"
-            "If the user's question is too vague to answer well, ask a clarifying question. "
-            "Suggest specific follow-ups the user could ask.\n\n"
-            "IMPORTANT: If the user's request would be better served by running a command, "
-            "include a line starting with COMMAND: followed by the slash command. For example:\n"
-            "COMMAND: /search meeting notes\n"
-            "COMMAND: /graph\n"
-            "COMMAND: /extract\n\n"
-            f"Available commands:\n{available_commands}"
-        )
+                thinking = Text(
+                    f"  \u2726 {_get_thinking_phrase()}",
+                    style="dim italic",
+                )
+                console.print(thinking)
 
-        prompt = f"""Context from your knowledge base:
+                response = await llm.generate(
+                    prompt, system=system_prompt,
+                )
 
-{context_block}
+                command_to_run = None
+                clean_lines = []
+                for line in response.split("\n"):
+                    if line.strip().startswith("COMMAND:"):
+                        command_to_run = (
+                            line.strip().replace("COMMAND:", "").strip()
+                        )
+                    else:
+                        clean_lines.append(line)
 
-Question: {user_input}"""
+                clean_response = "\n".join(clean_lines).strip()
 
-        llm = LLMClient(self.config.llm)
+                if clean_response:
+                    console.print()
+                    border = "green" if has_context else "yellow"
+                    md = Markdown(clean_response)
+                    console.print(
+                        Panel(md, border_style=border, padding=(1, 2))
+                    )
 
-        console.print()
-        thinking_text = Text(f"  ✦ {_get_thinking_phrase()}", style="dim italic")
-        console.print(thinking_text)
+                if has_context:
+                    console.print("[dim]Sources:[/dim]")
+                    for doc in search_results:
+                        tag = self._format_source_tag(doc.source)
+                        console.print(
+                            f"  [dim]-[/dim] {tag} "
+                            f"[dim]{doc.title}[/dim]"
+                        )
+                console.print()
+
+                if command_to_run and command_to_run.startswith("/"):
+                    console.print(
+                        f"  [dim]\u2192 Running suggested command: "
+                        f"[cyan]{command_to_run}[/cyan][/dim]\n"
+                    )
+                    self._handle_command(command_to_run)
+
+            except Exception as e:
+                console.print(f"\n[red]  Error: {e}[/red]")
+                console.print(
+                    "[dim]  Check your LLM config "
+                    "with /config.[/dim]\n"
+                )
+            finally:
+                await llm.close()
 
         try:
-            response = asyncio.run(llm.generate(prompt, system=system_prompt))
-
-            command_to_run = None
-            clean_lines = []
-            for line in response.split("\n"):
-                if line.strip().startswith("COMMAND:"):
-                    command_to_run = line.strip().replace("COMMAND:", "").strip()
-                else:
-                    clean_lines.append(line)
-
-            clean_response = "\n".join(clean_lines).strip()
-
-            if clean_response:
-                console.print()
-                md = Markdown(clean_response)
-                console.print(Panel(md, border_style="cyan", padding=(1, 2)))
-                console.print()
-
-            if command_to_run and command_to_run.startswith("/"):
-                console.print(f"  [dim]→ Running suggested command: [cyan]{command_to_run}[/cyan][/dim]\n")
-                self._handle_command(command_to_run)
-
+            asyncio.run(_run())
         except Exception as e:
-            console.print(f"\n[red]  Error: {e}[/red]")
-            console.print("[dim]  Check that Ollama is running and the model is available.[/dim]\n")
-        finally:
-            asyncio.run(llm.close())
+            console.print(f"\n[red]Error: {e}[/red]\n")
 
     def _suggest_commands(self, user_input: str) -> None:
         lower = user_input.lower()

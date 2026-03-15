@@ -95,20 +95,29 @@ async def generate_all_summaries(
     store: MemoryStore,
     llm: LLMClient,
     graph: Any,
+    max_people: int = 10,
+    max_topics: int = 8,
+    on_progress: Any | None = None,
 ) -> dict[str, str]:
     summaries: dict[str, str] = {}
 
+    def _progress(msg: str) -> None:
+        if on_progress:
+            on_progress(msg)
+
     recent = await store.get_recent(limit=30)
     if recent:
+        _progress("Generating overview summary...")
         summaries["overview"] = await summarize_documents(recent, llm)
 
     people_nodes = [
         (nid, data) for nid, data in graph._graph.nodes(data=True)
         if data.get("entity_type") == "person"
     ]
-    for _nid, data in people_nodes[:20]:
+    for i, (_nid, data) in enumerate(people_nodes[:max_people]):
         name = data.get("name", "")
         if name:
+            _progress(f"Summarising person {i + 1}/{min(len(people_nodes), max_people)}: {name}")
             summary = await generate_person_summary(store, llm, name)
             if summary:
                 summaries[f"person:{name}"] = summary
@@ -117,9 +126,10 @@ async def generate_all_summaries(
         (nid, data) for nid, data in graph._graph.nodes(data=True)
         if data.get("entity_type") in ("topic", "project")
     ]
-    for _nid, data in topic_nodes[:15]:
+    for i, (_nid, data) in enumerate(topic_nodes[:max_topics]):
         name = data.get("name", "")
         if name:
+            _progress(f"Summarising topic {i + 1}/{min(len(topic_nodes), max_topics)}: {name}")
             summary = await generate_topic_summary(store, llm, name)
             if summary:
                 summaries[f"topic:{name}"] = summary

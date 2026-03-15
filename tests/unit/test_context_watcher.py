@@ -58,11 +58,10 @@ async def test_should_regenerate_enough_new_docs():
         mock_store.get_stats = AsyncMock(
             return_value={"total_documents": 10},
         )
-        now = datetime.now(timezone.utc)
         doc1 = MagicMock()
-        doc1.timestamp = now
+        doc1.timestamp = "2026-03-14T12:00:00+00:00"
         doc2 = MagicMock()
-        doc2.timestamp = now
+        doc2.timestamp = "2026-03-14T13:00:00+00:00"
         mock_store.get_recent = AsyncMock(return_value=[doc1, doc2])
         mock_store_cls.return_value = mock_store
         watcher = ContextWatcher(config)
@@ -82,7 +81,7 @@ async def test_should_regenerate_not_enough_new_docs():
             return_value={"total_documents": 10},
         )
         doc1 = MagicMock()
-        doc1.timestamp = datetime(2019, 1, 1, tzinfo=timezone.utc)
+        doc1.timestamp = "2019-01-01T00:00:00+00:00"
         mock_store.get_recent = AsyncMock(return_value=[doc1])
         mock_store_cls.return_value = mock_store
         watcher = ContextWatcher(config)

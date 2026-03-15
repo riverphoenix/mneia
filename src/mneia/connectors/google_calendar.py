@@ -47,11 +47,13 @@ class GoogleCalendarConnector(BaseConnector):
 
             client_id = config.get("google_client_id", "")
             client_secret = config.get("google_client_secret", "")
+            account = config.get("account_name", "")
 
             creds = get_google_credentials(
-                "calendar", client_id, client_secret,
+                "calendar", client_id, client_secret, account=account,
             )
             self._service = build_service("calendar", "v3", creds)
+            self._account = account
 
             cal_ids = config.get("calendar_ids", "")
             if cal_ids:
@@ -119,10 +121,10 @@ class GoogleCalendarConnector(BaseConnector):
         except Exception:
             return False
 
-    def interactive_setup(self) -> dict[str, Any]:
+    def interactive_setup(self, account: str = "") -> dict[str, Any]:
         from mneia.connectors.google_auth import interactive_google_setup
 
-        settings = interactive_google_setup("calendar")
+        settings = interactive_google_setup("calendar", account=account)
 
         import typer
 
@@ -197,8 +199,9 @@ class GoogleCalendarConnector(BaseConnector):
                     metadata["meeting_link"] = entry.get("uri", "")
                     break
 
+        source = f"google-calendar-{self._account}" if getattr(self, "_account", "") else "google-calendar"
         return RawDocument(
-            source="google-calendar",
+            source=source,
             source_id=event_id,
             content=content,
             content_type="event",

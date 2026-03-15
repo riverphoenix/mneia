@@ -55,13 +55,14 @@ class ContextWatcher:
         if self._last_gen_time is None:
             return True
 
+        cutoff = self._last_gen_time.isoformat()
         recent = await self._store.get_recent(
-            limit=self._config.context_min_changes_for_regen,
+            limit=self._config.context_min_changes_for_regen + 5,
         )
 
         new_docs = 0
         for doc in recent:
-            if doc.timestamp and doc.timestamp > self._last_gen_time:
+            if doc.timestamp and doc.timestamp > cutoff:
                 new_docs += 1
 
         return new_docs >= self._config.context_min_changes_for_regen

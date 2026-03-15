@@ -7,7 +7,7 @@ from typing import Any
 
 import jinja2
 
-from mneia.config import CONTEXT_DIR, TEMPLATES_DIR, MneiaConfig
+from mneia.config import TEMPLATES_DIR, MneiaConfig
 from mneia.core.llm import LLMClient
 from mneia.memory.graph import KnowledgeGraph
 from mneia.memory.store import MemoryStore
@@ -36,6 +36,7 @@ async def generate_context_files(
     store: MemoryStore,
     graph: KnowledgeGraph,
     llm: LLMClient,
+    on_progress: Any | None = None,
 ) -> list[str]:
     output_dir = Path(config.context_output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -45,7 +46,9 @@ async def generate_context_files(
     graph_stats = graph.get_stats()
     graph_export = graph.export_json()
 
-    summaries = await generate_all_summaries(store, llm, graph)
+    summaries = await generate_all_summaries(
+        store, llm, graph, on_progress=on_progress,
+    )
 
     people = [
         {"name": data.get("name", ""), "type": data.get("entity_type", ""), **data.get("properties", {})}

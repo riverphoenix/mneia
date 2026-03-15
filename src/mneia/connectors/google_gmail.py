@@ -47,11 +47,13 @@ class GmailConnector(BaseConnector):
 
             client_id = config.get("google_client_id", "")
             client_secret = config.get("google_client_secret", "")
+            account = config.get("account_name", "")
 
             creds = get_google_credentials(
-                "gmail", client_id, client_secret,
+                "gmail", client_id, client_secret, account=account,
             )
             self._service = build_service("gmail", "v1", creds)
+            self._account = account
 
             max_r = config.get("max_results", "")
             if max_r:
@@ -125,10 +127,10 @@ class GmailConnector(BaseConnector):
         except Exception:
             return False
 
-    def interactive_setup(self) -> dict[str, Any]:
+    def interactive_setup(self, account: str = "") -> dict[str, Any]:
         from mneia.connectors.google_auth import interactive_google_setup
 
-        settings = interactive_google_setup("gmail")
+        settings = interactive_google_setup("gmail", account=account)
 
         import typer
 
@@ -195,8 +197,9 @@ class GmailConnector(BaseConnector):
             "snippet": msg.get("snippet", ""),
         }
 
+        source = f"gmail-{self._account}" if getattr(self, "_account", "") else "gmail"
         return RawDocument(
-            source="gmail",
+            source=source,
             source_id=msg_id,
             content=content,
             content_type="email",

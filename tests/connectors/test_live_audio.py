@@ -117,9 +117,9 @@ def test_detect_backend_none():
     assert result == "none"
 
 
-def test_live_audio_registered():
+def test_granola_registered():
     from mneia.connectors import get_available_connectors
 
     manifests = get_available_connectors()
     names = {m.name for m in manifests}
-    assert "live-audio" in names
+    assert "granola" in names

@@ -72,7 +72,20 @@ class MneiaConfig(BaseModel):
         else:
             config = cls()
         config._apply_env_overrides()
+        config._cleanup_dead_connectors()
         return config
+
+    def _cleanup_dead_connectors(self) -> None:
+        from mneia.connectors import get_connector_manifest
+
+        dead = [
+            name for name in self.connectors
+            if get_connector_manifest(name) is None
+        ]
+        if dead:
+            for name in dead:
+                del self.connectors[name]
+            self.save()
 
     def _apply_env_overrides(self) -> None:
         env_mappings: dict[str, str] = {

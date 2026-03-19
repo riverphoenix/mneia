@@ -67,10 +67,7 @@ class GoogleCalendarConnector(BaseConnector):
 
             return True
         except ImportError:
-            self.last_error = (
-                "Google libraries not installed. "
-                "Run: pip install 'mneia[google]'"
-            )
+            self.last_error = "Google libraries not installed. Reinstall mneia."
             return False
         except Exception as e:
             self.last_error = f"Google Calendar auth failed: {e}"

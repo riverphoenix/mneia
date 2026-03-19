@@ -208,12 +208,11 @@ CONNECTOR_HELP: dict[str, dict[str, str]] = {
     },
     "local_folders": {
         "description": "Scan and monitor local directories for text, code, and PDF files.",
-        "prerequisites": "One or more local directories to scan. Optional: pip install 'mneia[search]' for BM25 search.",
+        "prerequisites": "One or more local directories to scan. BM25 search is included.",
         "setup_help": "You'll provide folder paths to scan. Optionally configure file extensions and exclusion patterns.",
         "next_steps": (
             "1. Start the daemon: mneia start -d\n"
-            "2. Documents will be indexed automatically.\n"
-            "3. For enhanced search: pip install 'mneia[search]'"
+            "2. Documents will be indexed automatically with BM25 search."
         ),
     },
     "granola": {

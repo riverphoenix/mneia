@@ -130,7 +130,7 @@ class LocalFoldersConnector(BaseConnector):
         if self._bm25_enabled and _is_bm25_available():
             logger.info("BM25 search enabled for local folders")
         elif self._bm25_enabled:
-            logger.info("rank_bm25 not installed — install with: pip install 'mneia[search]'")
+            logger.info("rank_bm25 not available — BM25 search disabled")
             self._bm25_enabled = False
 
         return True
@@ -213,10 +213,7 @@ class LocalFoldersConnector(BaseConnector):
             )
             settings["bm25_search"] = "true"
         else:
-            typer.echo(
-                "\n  For enhanced BM25 keyword search, install the search extra:"
-            )
-            typer.echo("    pip install 'mneia[search]'")
+            typer.echo("\n  BM25 search not available. Reinstall mneia to enable.")
 
         if not paths:
             typer.echo("\n  No paths added. You can add them later in config.")

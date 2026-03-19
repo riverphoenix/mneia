@@ -44,23 +44,22 @@ dependencies = [
     "textual>=0.80",
     "hermes-agent @ git+https://github.com/NousResearch/hermes-agent.git",
     "litellm>=1.75",
-]
-
-[project.optional-dependencies]
-google = [
     "google-auth>=2.0",
     "google-auth-oauthlib>=1.0",
     "google-api-python-client>=2.0",
+    "rank_bm25>=0.2.2",
 ]
+
+[project.optional-dependencies]
 atlassian = ["atlassian-python-api>=3.0"]
 notion = ["notion-client>=2.0"]
 audio = ["faster-whisper>=1.0", "sounddevice>=0.4"]
 web = ["crawl4ai>=0.4", "playwright>=1.40"]
-search = ["rank_bm25>=0.2.2"]
 vector = ["chromadb>=0.5"]
+viking = ["openviking>=0.1"]
 mcp = ["mcp>=1.0"]
 menubar = ["rumps>=0.4"]
-all = ["mneia[google,atlassian,notion,audio,web,vector,search,mcp,menubar]"]
+all = ["mneia[atlassian,notion,audio,web,vector,viking,mcp,menubar]"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

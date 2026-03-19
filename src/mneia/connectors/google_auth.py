@@ -99,7 +99,7 @@ def get_google_credentials(
     except ImportError:
         raise ImportError(
             "Google auth libraries not installed. "
-            "Install with: pip install 'mneia[google]'"
+            "Google libraries not installed. Reinstall mneia."
         )
 
     if scopes is None:
@@ -148,7 +148,7 @@ def build_service(service_name: str, version: str, credentials: Any) -> Any:
     except ImportError:
         raise ImportError(
             "Google API client not installed. "
-            "Install with: pip install 'mneia[google]'"
+            "Google libraries not installed. Reinstall mneia."
         )
     return build(service_name, version, credentials=credentials)
 

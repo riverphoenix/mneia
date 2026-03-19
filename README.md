@@ -26,7 +26,7 @@ Autonomous multi-agent personal knowledge system. mneia connects to your apps (r
 pip install mneia
 ```
 
-Or with all optional extras (Google, Slack, audio, vector search, BM25 search, etc.):
+Or with all optional extras (Slack, audio, vector search, etc.):
 
 ```bash
 pip install mneia[all]
@@ -286,9 +286,10 @@ PersistentMemory (cross-session)
 
 mneia uses hybrid search combining:
 - **Full-text search** (SQLite FTS5) for keyword matching
-- **BM25 ranking** (rank_bm25) for relevance scoring — `pip install 'mneia[search]'`
-- **Vector search** (ChromaDB + nomic-embed-text) for semantic similarity
+- **BM25 ranking** (rank_bm25) for relevance scoring (included by default)
+- **Vector search** (ChromaDB + nomic-embed-text) for semantic similarity — `pip install 'mneia[vector]'`
 - **Knowledge graph** traversal for entity context
+- **OpenViking** context database for hierarchical agent memory — `pip install 'mneia[viking]'`
 
 Results are merged and deduplicated for optimal relevance.
 

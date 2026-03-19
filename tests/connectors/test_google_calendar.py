@@ -20,12 +20,16 @@ def test_manifest():
     assert "readonly" in c.manifest.scopes[0]
 
 
-async def test_authenticate_no_credentials(connector):
+async def test_authenticate_no_credentials(connector, monkeypatch):
+    import mneia.connectors.google_auth as ga
+    monkeypatch.setattr(ga, "get_google_credentials", lambda *a, **kw: (_ for _ in ()).throw(Exception("no creds")))
     result = await connector.authenticate({})
     assert result is False
 
 
-async def test_authenticate_missing_client_id(connector):
+async def test_authenticate_missing_client_id(connector, monkeypatch):
+    import mneia.connectors.google_auth as ga
+    monkeypatch.setattr(ga, "get_google_credentials", lambda *a, **kw: (_ for _ in ()).throw(Exception("no creds")))
     result = await connector.authenticate({"google_client_secret": "secret"})
     assert result is False
 

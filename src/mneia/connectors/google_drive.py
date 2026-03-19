@@ -81,7 +81,7 @@ class GoogleDriveConnector(BaseConnector):
 
             return True
         except ImportError:
-            logger.error("Google libraries not installed. Run: pip install 'mneia[google]'")
+            logger.error("Google libraries not installed. Reinstall mneia.")
             return False
         except Exception as e:
             logger.error(f"Google Drive auth failed: {e}")

@@ -289,8 +289,6 @@ mneia uses hybrid search combining:
 - **BM25 ranking** (rank_bm25) for relevance scoring (included by default)
 - **Vector search** (ChromaDB + nomic-embed-text) for semantic similarity — `pip install 'mneia[vector]'`
 - **Knowledge graph** traversal for entity context
-- **OpenViking** context database for hierarchical agent memory — `pip install 'mneia[viking]'`
-
 Results are merged and deduplicated for optimal relevance.
 
 ## Safety

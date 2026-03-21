@@ -61,6 +61,10 @@ class MneiaConfig(BaseModel):
     hermes_enabled: bool = True
     hermes_model: str = ""
     hermes_max_iterations: int = 10
+    ner_enabled: bool = True
+    reranker_enabled: bool = True
+    graphrag_enabled: bool = False
+    cognee_enabled: bool = False
     max_memory_mb: int = 2048
     log_level: str = "info"
 

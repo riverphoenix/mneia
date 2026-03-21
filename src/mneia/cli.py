@@ -100,12 +100,20 @@ def main_callback(
     )
 
     if ctx.invoked_subcommand is None:
-        from mneia.interactive import run_interactive
+        from mneia.tui import run_tui
 
-        run_interactive()
+        run_tui()
 
 
 # --- Top-level commands ---
+
+
+@app.command()
+def repl() -> None:
+    """Launch the interactive REPL (classic mode)."""
+    from mneia.interactive import run_interactive
+
+    run_interactive()
 
 
 @app.command()
@@ -1601,20 +1609,6 @@ def logs(
             except KeyboardInterrupt:
                 console.print("\n[dim]Stopped.[/dim]")
 
-
-@app.command()
-def menubar() -> None:
-    """Launch macOS menu bar status icon."""
-    try:
-        from mneia.menubar import run_menubar
-    except ImportError:
-        console.print(
-            "[red]rumps package not installed. "
-            "Install with: pip install 'mneia[menubar]'[/red]"
-        )
-        raise typer.Exit(1)
-
-    run_menubar()
 
 
 @app.command()

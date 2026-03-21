@@ -39,6 +39,9 @@ class GraphNode:
     entity_type: str
     name: str
     properties: dict[str, Any] = field(default_factory=dict)
+    first_seen: str | None = None
+    last_seen: str | None = None
+    mention_count: int = 1
 
 
 @dataclass
@@ -48,6 +51,8 @@ class GraphEdge:
     relation: str
     weight: float = 1.0
     evidence: str = ""
+    first_seen: str | None = None
+    last_seen: str | None = None
 
 
 class KnowledgeGraph:
@@ -68,8 +73,22 @@ class KnowledgeGraph:
         try:
             conn.executescript(GRAPH_SCHEMA)
             conn.commit()
+            self._migrate_schema(conn)
         finally:
             conn.close()
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(graph_nodes)")}
+        if "first_seen" not in cols:
+            conn.execute("ALTER TABLE graph_nodes ADD COLUMN first_seen TEXT")
+            conn.execute("ALTER TABLE graph_nodes ADD COLUMN last_seen TEXT")
+            conn.execute("ALTER TABLE graph_nodes ADD COLUMN mention_count INTEGER DEFAULT 1")
+            conn.commit()
+        edge_cols = {row[1] for row in conn.execute("PRAGMA table_info(graph_edges)")}
+        if "first_seen" not in edge_cols:
+            conn.execute("ALTER TABLE graph_edges ADD COLUMN first_seen TEXT")
+            conn.execute("ALTER TABLE graph_edges ADD COLUMN last_seen TEXT")
+            conn.commit()
 
     def _load_from_db(self) -> None:
         conn = self._get_conn()
@@ -93,47 +112,61 @@ class KnowledgeGraph:
             conn.close()
 
     def add_entity(self, node: GraphNode) -> None:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
         self._graph.add_node(
             node.id,
             entity_type=node.entity_type,
             name=node.name,
             properties=node.properties,
+            first_seen=node.first_seen or now,
+            last_seen=now,
+            mention_count=node.mention_count,
         )
         conn = self._get_conn()
         try:
             conn.execute(
                 """
-                INSERT INTO graph_nodes (id, entity_type, name, properties)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO graph_nodes (id, entity_type, name, properties, first_seen, last_seen, mention_count)
+                VALUES (?, ?, ?, ?, ?, ?, 1)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
-                    properties = excluded.properties
+                    properties = excluded.properties,
+                    last_seen = excluded.last_seen,
+                    mention_count = COALESCE(mention_count, 0) + 1
                 """,
-                (node.id, node.entity_type, node.name, json.dumps(node.properties)),
+                (node.id, node.entity_type, node.name, json.dumps(node.properties), now, now),
             )
             conn.commit()
         finally:
             conn.close()
 
     def add_relationship(self, edge: GraphEdge) -> None:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
         self._graph.add_edge(
             edge.source_id,
             edge.target_id,
             relation=edge.relation,
             weight=edge.weight,
             evidence=edge.evidence,
+            first_seen=edge.first_seen or now,
+            last_seen=now,
         )
         conn = self._get_conn()
         try:
             conn.execute(
                 """
-                INSERT INTO graph_edges (source_id, target_id, relation, weight, evidence)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO graph_edges (source_id, target_id, relation, weight, evidence, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(source_id, target_id, relation) DO UPDATE SET
                     weight = weight + excluded.weight,
-                    evidence = excluded.evidence
+                    evidence = excluded.evidence,
+                    last_seen = excluded.last_seen
                 """,
-                (edge.source_id, edge.target_id, edge.relation, edge.weight, edge.evidence),
+                (edge.source_id, edge.target_id, edge.relation, edge.weight, edge.evidence, now, now),
             )
             conn.commit()
         finally:
@@ -216,6 +249,28 @@ class KnowledgeGraph:
             "total_edges": self._graph.number_of_edges(),
             "by_type": type_counts,
         }
+
+    def get_recent_entities(self, since: str) -> list[dict[str, Any]]:
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM graph_nodes WHERE last_seen >= ? ORDER BY last_seen DESC",
+                (since,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def get_trending_entities(self, limit: int = 10) -> list[dict[str, Any]]:
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM graph_nodes ORDER BY mention_count DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
 
     def export_json(self) -> dict[str, Any]:
         nodes = []

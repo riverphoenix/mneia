@@ -38,6 +38,31 @@ async def extract_entities(
     doc: StoredDocument,
     llm: LLMClient,
 ) -> dict[str, Any]:
+    from mneia.pipeline.ner import NERExtractor
+    from mneia.pipeline.structured import ExtractionResult, extract_structured
+
+    ner = NERExtractor()
+    ner_hints: list[dict[str, Any]] | None = None
+    if ner.available and len(doc.content) >= 50:
+        ner_hints = ner.extract(doc.content[:5000])
+
+    try:
+        result: ExtractionResult = await extract_structured(
+            title=doc.title,
+            source=doc.source,
+            content=doc.content,
+            content_type=doc.content_type,
+            llm_config=llm._config,
+            ner_hints=ner_hints,
+        )
+        if result.entities:
+            return {
+                "entities": [e.model_dump() for e in result.entities],
+                "relationships": [r.model_dump() for r in result.relationships],
+            }
+    except Exception:
+        logger.debug("Structured extraction unavailable, falling back to JSON prompt")
+
     content = doc.content[:3000]
     prompt = f"""Extract entities and relationships from this {doc.content_type}:
 
@@ -47,16 +72,31 @@ Content:
 {content}"""
 
     try:
-        result = await llm.generate_json(prompt, system=EXTRACTION_SYSTEM_PROMPT)
-        entities = result.get("entities", [])
-        relationships = result.get("relationships", [])
+        raw = await llm.generate_json(prompt, system=EXTRACTION_SYSTEM_PROMPT)
+        entities = raw.get("entities", [])
+        relationships = raw.get("relationships", [])
         if not isinstance(entities, list):
             entities = []
         if not isinstance(relationships, list):
             relationships = []
+
+        if ner_hints and not entities:
+            entities = [
+                {"name": h["text"], "type": h["label"], "description": ""}
+                for h in ner_hints[:10]
+            ]
+
         return {"entities": entities, "relationships": relationships}
     except Exception:
         logger.exception(f"Entity extraction failed for doc {doc.id}")
+        if ner_hints:
+            return {
+                "entities": [
+                    {"name": h["text"], "type": h["label"], "description": ""}
+                    for h in ner_hints[:10]
+                ],
+                "relationships": [],
+            }
         return {"entities": [], "relationships": []}
 
 

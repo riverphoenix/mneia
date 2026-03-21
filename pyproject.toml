@@ -42,7 +42,6 @@ dependencies = [
     "watchfiles>=0.21",
     "prompt_toolkit>=3.0",
     "textual>=0.80",
-    "hermes-agent @ git+https://github.com/NousResearch/hermes-agent.git",
     "litellm>=1.75",
     "google-auth>=2.0",
     "google-auth-oauthlib>=1.0",
@@ -51,14 +50,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+hermes = ["hermes-agent @ git+https://github.com/NousResearch/hermes-agent.git"]
 atlassian = ["atlassian-python-api>=3.0"]
 notion = ["notion-client>=2.0"]
 audio = ["faster-whisper>=1.0", "sounddevice>=0.4"]
 web = ["crawl4ai>=0.4", "playwright>=1.40"]
 vector = ["chromadb>=0.5"]
+intelligence = ["instructor>=1.0", "gliner>=0.2", "rerankers>=0.5"]
+graphrag = ["lightrag-hku>=0.1"]
+cognitive = ["cognee>=0.1"]
 mcp = ["mcp>=1.0"]
-menubar = ["rumps>=0.4"]
-all = ["mneia[atlassian,notion,audio,web,vector,mcp,menubar]"]
+all = ["mneia[atlassian,notion,audio,web,vector,intelligence,graphrag,cognitive,mcp]"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
@@ -76,7 +78,6 @@ Changelog = "https://github.com/riverphoenix/mneia/releases"
 
 [project.scripts]
 mneia = "mneia.cli:main"
-mneia-menubar = "mneia.menubar:run_menubar"
 
 [tool.hatch.metadata]
 allow-direct-references = true

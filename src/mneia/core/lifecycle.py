@@ -374,3 +374,73 @@ async def send_command(action: str, **kwargs: Any) -> dict[str, Any]:
     finally:
         writer.close()
         await writer.wait_closed()
+
+
+class EmbeddedDaemon:
+    """Runs agents in-process on the same asyncio loop (no Unix socket IPC).
+
+    Designed for the TUI: agents share the event loop with Textual.
+    """
+
+    def __init__(self, config: MneiaConfig) -> None:
+        self._config = config
+        self._manager = AgentManager(config)
+        self._task: asyncio.Task[Any] | None = None
+
+    @property
+    def running(self) -> bool:
+        return self._manager._running
+
+    @property
+    def agents(self) -> dict[str, BaseAgent]:
+        return self._manager._agents
+
+    @property
+    def failed_connectors(self) -> dict[str, str]:
+        return self._manager._failed_connectors
+
+    async def start(self) -> None:
+        self._manager._running = True
+        await self._manager._start_agents()
+        logger.info("Embedded daemon started with %d agent(s)", len(self._manager._agents))
+
+    async def stop(self) -> None:
+        self._manager._running = False
+        await self._manager._stop_agents()
+        logger.info("Embedded daemon stopped")
+
+    async def start_agent(self, connector_name: str) -> str | None:
+        from mneia.agents.listener import ListenerAgent
+        from mneia.connectors import create_connector
+
+        conn_config = self._config.connectors.get(connector_name)
+        if not conn_config or not conn_config.enabled:
+            return f"Connector not enabled: {connector_name}"
+
+        connector = create_connector(connector_name)
+        if not connector:
+            return f"Unknown connector: {connector_name}"
+
+        authenticated = await connector.authenticate(conn_config.settings)
+        if not authenticated:
+            return f"Auth failed: {connector_name}"
+
+        agent = ListenerAgent(
+            name=f"listener-{connector_name}",
+            connector=connector,
+            config=self._config,
+            connector_config=conn_config,
+        )
+        self._manager._agents[agent.name] = agent
+        self._manager._tasks[agent.name] = asyncio.create_task(
+            self._manager._run_agent(agent), name=agent.name,
+        )
+        return None
+
+    async def stop_agent(self, agent_name: str) -> bool:
+        if agent_name not in self._manager._agents:
+            return False
+        await self._manager._agents[agent_name].stop()
+        if agent_name in self._manager._tasks:
+            self._manager._tasks[agent_name].cancel()
+        return True

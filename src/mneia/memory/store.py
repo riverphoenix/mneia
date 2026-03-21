@@ -246,6 +246,27 @@ class MemoryStore:
         finally:
             conn.close()
 
+    async def search_reranked(
+        self,
+        query: str,
+        limit: int = 10,
+        source: str | None = None,
+        sources: list[str] | None = None,
+    ) -> list[StoredDocument]:
+        candidates = await self.search(query, limit=limit * 3, source=source, sources=sources)
+        if len(candidates) <= 1:
+            return candidates[:limit]
+
+        try:
+            from mneia.pipeline.rerank import get_reranker
+
+            reranker = get_reranker()
+            if reranker.available:
+                return reranker.rerank(query, candidates, top_k=limit)
+        except Exception:
+            pass
+        return candidates[:limit]
+
     async def get_by_id(self, doc_id: int) -> StoredDocument | None:
         conn = self._get_conn()
         try:

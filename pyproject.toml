@@ -50,7 +50,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-hermes = ["hermes-agent @ git+https://github.com/NousResearch/hermes-agent.git"]
 atlassian = ["atlassian-python-api>=3.0"]
 notion = ["notion-client>=2.0"]
 audio = ["faster-whisper>=1.0", "sounddevice>=0.4"]

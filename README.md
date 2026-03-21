@@ -12,13 +12,13 @@ Autonomous multi-agent personal knowledge system. mneia connects to your apps (r
 
 ## What it does
 
-- **Connects** to 19 data sources (Calendar, Slack, GitHub, Notes, Chrome, Local Folders, and more) — read-only, always
-- **Learns** by extracting entities, relationships, and patterns from your data via LLM
-- **Remembers** everything locally in a knowledge graph with vector embeddings — nothing leaves your machine
+- **Connects** to 19 data sources (Calendar, Gmail, Obsidian, Local Folders, Slack, GitHub, and more) — read-only, always
+- **Learns** by extracting entities, relationships, and patterns via GLiNER NER + LLM structured extraction
+- **Remembers** everything locally in a temporal knowledge graph with vector embeddings — nothing leaves your machine
 - **Thinks** autonomously — identifies gaps, proposes connections, and surfaces insights
 - **Generates** `.md` context files for Claude Code, Cursor, and other AI tools
 - **Serves** as an MCP server so AI tools can query your knowledge directly
-- **Converses** with you about your knowledge through a CLI/interactive interface
+- **Converses** with you through a beautiful terminal UI with search, chat, and graph browser
 
 ## Install
 
@@ -26,44 +26,51 @@ Autonomous multi-agent personal knowledge system. mneia connects to your apps (r
 pip install mneia
 ```
 
-Or with all optional extras (Slack, audio, vector search, etc.):
+With intelligence extras (NER, reranking, structured extraction):
 
 ```bash
-pip install mneia[all]
+pip install 'mneia[intelligence]'
+```
+
+With everything:
+
+```bash
+pip install 'mneia[all]'
 ```
 
 ## Quick Start
 
 ```bash
-# Prerequisites: local LLM via Ollama
-brew install ollama
-ollama pull phi3:mini
-ollama pull nomic-embed-text
+# Just run it — the TUI handles everything
+mneia
+```
 
-# Setup
-mneia config setup
+The TUI auto-starts the daemon, shows a dashboard, and guides you through setup. No manual config needed.
 
-# Enable a connector
+For headless/server use:
+
+```bash
+mneia config setup           # Interactive setup wizard
 mneia connector enable obsidian
 mneia connector setup obsidian
-
-# Sync and start
-mneia connector sync obsidian
-mneia start
+mneia start -d               # Start daemon in background
 ```
 
-## Interactive Mode
+## Terminal UI
 
-Run `mneia` with no arguments to enter interactive mode:
+Running `mneia` launches a full Textual TUI with:
 
-```
-mneia › /help              # See all commands
-mneia › /search meetings   # Search your knowledge
-mneia › /stats             # View memory statistics
-mneia › What did I discuss with Alice last week?  # Natural language query
-```
+- **Dashboard** — stats panels, agent status, recent activity, quick actions
+- **Search** — hybrid search with BM25 + vector + cross-encoder reranking, document preview
+- **Chat** — multi-turn RAG conversation with citations and follow-ups
+- **Agents** — live agent status with start/stop controls
+- **Sources** — connector list, enable/disable, setup wizard
+- **Graph** — knowledge graph browser with entity types, relationships, trending entities
+- **Settings** — LLM provider, model, behavior configuration
 
-The interactive mode supports slash commands, natural language intent detection, and LLM-powered conversational queries with automatic command routing. Cross-session memory means mneia learns your preferences over time.
+Navigate with sidebar, keyboard shortcuts (1-7), or `/slash` commands in the command bar.
+
+For the classic REPL experience: `mneia repl`
 
 ## MCP Server
 
@@ -152,6 +159,7 @@ mneia context link <target-dir>       # Symlink context to a project directory
 ```bash
 mneia ask <question> [--source <name>]  # Single query with RAG
 mneia chat                              # Multi-turn conversation mode
+mneia repl                              # Classic interactive REPL mode
 ```
 
 ### Permissions
@@ -165,7 +173,7 @@ mneia permission revoke <operation>   # Revoke a permission
 ### Agent Dashboard & Logs
 
 ```bash
-mneia agents                          # Interactive TUI dashboard (Textual)
+mneia agent-stats                     # Show 24h agent activity stats
 mneia logs [--level info] [--follow]  # Tail daemon logs
 ```
 
@@ -190,37 +198,6 @@ mneia version                         # Show version
 mneia update                          # Check for updates
 ```
 
-## Interactive Mode Commands
-
-All CLI commands are also available as slash commands in interactive mode:
-
-| Command | Description |
-|---------|-------------|
-| `/help` | Show all available commands |
-| `/status` | Show daemon and agent status |
-| `/search <query>` | Search your knowledge |
-| `/ask <question>` | Ask a question with RAG |
-| `/stats` | Show memory statistics |
-| `/recent` | Show recently ingested documents |
-| `/connectors` | List connectors and status |
-| `/sync <name>` | Sync a connector |
-| `/connector-start <name>` | Start a connector agent |
-| `/connector-stop <name>` | Stop a connector agent |
-| `/agents` | List running agents |
-| `/extract [limit]` | Run entity extraction |
-| `/graph` | Show knowledge graph summary |
-| `/graph-entities [type]` | List entities |
-| `/graph-person <name>` | Show person details |
-| `/graph-topic <name>` | Show topic details |
-| `/context` | Generate context files |
-| `/config` | Show configuration |
-| `/start` | Start daemon in background |
-| `/stop` | Stop the daemon |
-| `/chat` | Enter multi-turn chat mode |
-| `/logs [level]` | Show daemon logs |
-
-Natural language is also supported — the LLM detects intent and can automatically route to the appropriate command.
-
 ## Built-in Connectors
 
 | Connector | Source | Auth | Mode |
@@ -244,52 +221,71 @@ Natural language is also supported — the LLM detects intent and can automatica
 | Linear | Issues & projects | API key | Poll |
 | Todoist | Tasks & projects | API token | Poll |
 
+Multi-account support: Gmail, Google Calendar, and Google Drive support multiple accounts (e.g., `gmail-work`, `gmail-personal`).
+
 ## Architecture
 
 ```
-CLI / Interactive REPL ──── MCP Server (stdio)
-        |
-   Unix Socket IPC
-        |
-  AgentManager (daemon)
+TUI (Textual) ──── CLI (Typer) ──── MCP Server (stdio)
+     |                  |
+  EmbeddedDaemon    Unix Socket IPC
+     |                  |
+  AgentManager ─────────┘
    /    |    \      \         \
-Listener Worker Meta Enrichment Autonomous
+Listener Worker Meta Knowledge Autonomous
 Agents   Agent  Agent  Agent     Agent
   |        |                       |
 Connectors Pipeline               ReasoningEngine
-  |        Extract → Associate     (LLM gap analysis)
+  |        NER (GLiNER)            (LLM gap analysis)
+  |        Extract (Instructor)
+  |        Rerank → Associate
   |        → Summarize → Generate
   |                        |
 MemoryStore (SQLite+FTS5)  .md Context Files
 VectorStore (ChromaDB)     (~/.mneia/context/)
-KnowledgeGraph (NetworkX)
-PersistentMemory (cross-session)
+KnowledgeGraph (NetworkX + temporal)
+GraphRAG (LightRAG, optional)
+CognitiveMemory (Cognee, optional)
 ```
 
 **Agent Types:**
 - **ListenerAgent** — one per connector, polls or watches data sources in real-time
-- **WorkerAgent** — entity extraction, association building, vector embedding
+- **WorkerAgent** — entity extraction (GLiNER + Instructor), association building, vector embedding
 - **MetaAgent** — orchestrator, health monitoring, entity deduplication
-- **EnrichmentAgent** — web research to enrich sparse entities
-- **WebResearchAgent** — deep topic research with scraping and LLM synthesis
+- **KnowledgeAgent** — knowledge graph operations, cross-document connections
 - **AutonomousAgent** — identifies knowledge gaps, proposes connections, generates insights
 
-## Memory Pipeline
+## Intelligence Pipeline
 
 1. **Ingest** — Connectors fetch raw documents, normalize and store in SQLite with FTS5 + ChromaDB vectors
-2. **Extract** — LLM extracts entities (people, projects, topics, decisions) and relationships
-3. **Associate** — Cross-reference entities, merge duplicates, build graph edges
-4. **Summarize** — Generate rolling summaries per person, topic, and time period
-5. **Generate** — Render Jinja2 templates into `.md` context files (auto-regenerated on changes)
+2. **NER** — GLiNER zero-shot NER extracts entities with confidence scores (optional, `pip install gliner`)
+3. **Extract** — Instructor produces Pydantic-validated entities and relationships from LLM (optional, `pip install instructor`)
+4. **Rerank** — Cross-encoder reranking for search quality (optional, `pip install rerankers`)
+5. **Associate** — Cross-reference entities, merge duplicates, build temporal graph edges
+6. **Summarize** — Generate rolling summaries per person, topic, and time period
+7. **Generate** — Render Jinja2 templates into `.md` context files (auto-regenerated on changes)
+
+Falls back gracefully to basic LLM JSON extraction when optional deps are not installed.
 
 ## Search
 
 mneia uses hybrid search combining:
 - **Full-text search** (SQLite FTS5) for keyword matching
 - **BM25 ranking** (rank_bm25) for relevance scoring (included by default)
+- **Cross-encoder reranking** (rerankers) for precision — `pip install 'mneia[intelligence]'`
 - **Vector search** (ChromaDB + nomic-embed-text) for semantic similarity — `pip install 'mneia[vector]'`
 - **Knowledge graph** traversal for entity context
-Results are merged and deduplicated for optimal relevance.
+- **GraphRAG** (LightRAG) for graph-augmented retrieval — `pip install 'mneia[graphrag]'`
+- **Cognitive memory** (Cognee) for consolidated long-term memory — `pip install 'mneia[cognitive]'`
+
+Results are merged, reranked, and deduplicated for optimal relevance.
+
+## Temporal Knowledge Graph
+
+The knowledge graph tracks when entities and relationships were first seen, last seen, and how often they're mentioned. This enables:
+- **Trending entities** — who/what is most active recently
+- **Timeline queries** — "what did I discuss with X last week"
+- **Decay scoring** — older, less-mentioned entities rank lower
 
 ## Safety
 
@@ -306,14 +302,27 @@ Pre-approve operations with `mneia permission grant <operation>`.
 - **Retry with backoff** — API calls retry automatically on transient failures
 - **Circuit breaker** — LLM client pauses after repeated failures, auto-resets
 - **Agent auto-restart** — crashed agents restart with exponential backoff (max 3 retries)
-- **In-process metrics** — counters, gauges, and timers for observability
+- **Dead connector cleanup** — stale config entries auto-removed on startup
 
 ## Core Principles
 
 1. **Read-only** — Connectors never modify your data. No sending, no editing, no deleting.
 2. **Local-only** — All data stays on your machine. No cloud sync. No telemetry.
 3. **Open source** — MIT licensed. Inspect every line. Fork and customize.
-4. **Lightweight** — Async agents, not heavy processes. Runs alongside your work.
+4. **Zero-config** — `pip install mneia && mneia` — the TUI handles the rest.
+
+## Optional Extras
+
+```bash
+pip install 'mneia[intelligence]'  # GLiNER NER + Instructor + Rerankers
+pip install 'mneia[vector]'        # ChromaDB vector search
+pip install 'mneia[graphrag]'      # LightRAG graph-augmented retrieval
+pip install 'mneia[cognitive]'     # Cognee cognitive memory
+pip install 'mneia[audio]'         # Whisper audio transcription
+pip install 'mneia[web]'           # Web scraping (crawl4ai + playwright)
+pip install 'mneia[mcp]'           # MCP server for AI tool integration
+pip install 'mneia[all]'           # Everything
+```
 
 ## Extending
 
@@ -344,7 +353,7 @@ pytest tests/integration/       # CLI integration tests
 pytest -v                       # All tests with verbose output
 ```
 
-604 tests covering all agents, connectors, pipeline stages, and core infrastructure.
+574 tests covering all agents, connectors, pipeline stages, TUI, and core infrastructure.
 
 ## License
 

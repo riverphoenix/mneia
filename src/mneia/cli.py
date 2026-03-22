@@ -100,20 +100,12 @@ def main_callback(
     )
 
     if ctx.invoked_subcommand is None:
-        from mneia.tui import run_tui
+        from mneia.interactive import run_interactive
 
-        run_tui()
+        run_interactive()
 
 
 # --- Top-level commands ---
-
-
-@app.command()
-def repl() -> None:
-    """Launch the interactive REPL (classic mode)."""
-    from mneia.interactive import run_interactive
-
-    run_interactive()
 
 
 @app.command()

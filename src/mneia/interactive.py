@@ -399,7 +399,9 @@ class InteractiveSession:
             else:
                 console.print("[yellow]Daemon not responding.[/yellow]")
         except (ConnectionRefusedError, FileNotFoundError, OSError):
-            console.print("[yellow]Daemon not responding.[/yellow]")
+            SOCKET_PATH.unlink(missing_ok=True)
+            console.print("[dim]Daemon is not running.[/dim]")
+            console.print("[dim]Start with [cyan]/start[/cyan][/dim]")
 
     def _cmd_stats(self) -> None:
         from mneia.memory.store import MemoryStore
@@ -494,13 +496,25 @@ class InteractiveSession:
         console.print(f"  [dim]Connectors:[/dim] [cyan]{', '.join(enabled) or 'none'}[/cyan]")
 
     def _cmd_start_daemon(self, connectors: list[str] | None = None) -> None:
+        import os
         import subprocess
 
         from mneia.config import PID_PATH, SOCKET_PATH
 
         if SOCKET_PATH.exists():
-            console.print("[yellow]Daemon already running.[/yellow]")
-            return
+            pid_alive = False
+            if PID_PATH.exists():
+                try:
+                    pid = int(PID_PATH.read_text().strip())
+                    os.kill(pid, 0)
+                    pid_alive = True
+                except (ValueError, OSError):
+                    pass
+            if pid_alive:
+                console.print("[yellow]Daemon already running.[/yellow]")
+                return
+            SOCKET_PATH.unlink(missing_ok=True)
+            PID_PATH.unlink(missing_ok=True)
 
         python = sys.executable
         filter_arg = ""

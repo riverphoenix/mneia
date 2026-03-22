@@ -135,11 +135,24 @@ def start(
     connector_filter = connectors.split(",") if connectors else None
 
     if detach:
+        import os
+
         from mneia.config import MNEIA_DIR, PID_PATH, SOCKET_PATH
 
         if SOCKET_PATH.exists():
-            console.print("[yellow]Daemon already running.[/yellow]")
-            return
+            pid_alive = False
+            if PID_PATH.exists():
+                try:
+                    pid = int(PID_PATH.read_text().strip())
+                    os.kill(pid, 0)
+                    pid_alive = True
+                except (ValueError, OSError):
+                    pass
+            if pid_alive:
+                console.print("[yellow]Daemon already running.[/yellow]")
+                return
+            SOCKET_PATH.unlink(missing_ok=True)
+            PID_PATH.unlink(missing_ok=True)
 
         python = sys.executable
         filter_arg = ""
@@ -267,10 +280,15 @@ def status() -> None:
                 return
             console.print("[yellow]mneia is not running.[/yellow]")
     except (ConnectionRefusedError, FileNotFoundError, OSError):
+        from mneia.config import PID_PATH, SOCKET_PATH
+
+        SOCKET_PATH.unlink(missing_ok=True)
+        PID_PATH.unlink(missing_ok=True)
         if output.is_json:
             output.json_result({"running": False})
             return
         console.print("[yellow]mneia is not running.[/yellow]")
+        console.print("[dim]Start with: [cyan]mneia start -d[/cyan][/dim]")
 
 
 # --- Config commands ---

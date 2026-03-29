@@ -127,6 +127,7 @@ class NotionConnector(BaseConnector):
         settings: dict[str, Any] = {"api_token": token}
         if db_ids:
             settings["database_ids"] = db_ids
+        self._verify_setup(settings)
         return settings
 
     async def _page_to_document(self, page: dict[str, Any]) -> RawDocument | None:

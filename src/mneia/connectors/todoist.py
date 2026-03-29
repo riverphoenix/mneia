@@ -83,7 +83,9 @@ class TodoistConnector(BaseConnector):
         )
 
         token = typer.prompt("  Todoist API token", hide_input=True)
-        return {"todoist_api_token": token}
+        settings = {"todoist_api_token": token}
+        self._verify_setup(settings)
+        return settings
 
     async def _fetch_projects(self) -> list[dict[str, Any]]:
         if not self._client:

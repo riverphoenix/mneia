@@ -103,6 +103,7 @@ class AsanaConnector(BaseConnector):
             settings["workspace_gid"] = workspace
         if projects:
             settings["project_gids"] = projects
+        self._verify_setup(settings)
         return settings
 
     async def _fetch_project_tasks(

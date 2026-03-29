@@ -120,12 +120,14 @@ class JiraConnector(BaseConnector):
         token = typer.prompt("  API token", hide_input=True)
         jql = typer.prompt("  JQL filter", default="assignee = currentUser() ORDER BY updated DESC")
 
-        return {
+        settings = {
             "base_url": base_url,
             "email": email,
             "api_token": token,
             "jql": jql,
         }
+        self._verify_setup(settings)
+        return settings
 
     def _issue_to_document(self, issue: dict[str, Any]) -> RawDocument | None:
         key = issue.get("key", "")

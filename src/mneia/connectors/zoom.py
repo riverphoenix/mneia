@@ -129,18 +129,21 @@ class ZoomConnector(BaseConnector):
         import typer
 
         typer.echo("\n  Zoom setup — requires a Server-to-Server OAuth app.")
-        typer.echo("  Create one at: https://marketplace.zoom.us/develop/create\n")
-        typer.echo("  Choose 'Server-to-Server OAuth' app type.\n")
+        typer.echo("  Create one at: https://marketplace.zoom.us/develop/create")
+        typer.echo("  Choose 'Server-to-Server OAuth' app type.")
+        typer.echo("  Required scopes: recording:read, meeting:read\n")
 
         account_id = typer.prompt("  Zoom Account ID")
         client_id = typer.prompt("  Zoom Client ID")
         client_secret = typer.prompt("  Zoom Client Secret", hide_input=True)
 
-        return {
+        settings = {
             "account_id": account_id,
             "client_id": client_id,
             "client_secret": client_secret,
         }
+        self._verify_setup(settings)
+        return settings
 
     async def _meeting_to_document(self, meeting: dict[str, Any]) -> RawDocument | None:
         meeting_id = str(meeting.get("id", ""))

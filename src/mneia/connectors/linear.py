@@ -100,6 +100,7 @@ class LinearConnector(BaseConnector):
         settings: dict[str, Any] = {"linear_api_key": key}
         if teams:
             settings["team_ids"] = teams
+        self._verify_setup(settings)
         return settings
 
     async def _fetch_issues(

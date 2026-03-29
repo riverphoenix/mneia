@@ -102,6 +102,7 @@ class SlackConnector(BaseConnector):
         settings: dict[str, Any] = {"slack_token": token}
         if channels:
             settings["channels"] = channels
+        self._verify_setup(settings)
         return settings
 
     async def _list_channels(self) -> list[str]:

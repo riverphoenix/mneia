@@ -133,6 +133,7 @@ class ConfluenceConnector(BaseConnector):
         }
         if spaces:
             settings["space_keys"] = spaces
+        self._verify_setup(settings)
         return settings
 
     def _page_to_document(self, page: dict[str, Any]) -> RawDocument | None:

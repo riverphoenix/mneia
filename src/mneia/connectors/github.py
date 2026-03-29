@@ -98,6 +98,7 @@ class GitHubConnector(BaseConnector):
         settings: dict[str, Any] = {"github_token": token}
         if repos:
             settings["repos"] = repos
+        self._verify_setup(settings)
         return settings
 
     async def _fetch_issues(

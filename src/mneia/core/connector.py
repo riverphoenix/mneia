@@ -87,3 +87,23 @@ class BaseConnector(ABC):
             if value:
                 settings[key] = value
         return settings
+
+    def _verify_setup(self, settings: dict[str, Any]) -> None:
+        """Test credentials immediately after setup and print the result. Never raises."""
+        import asyncio
+        import typer
+
+        typer.echo("\n  Verifying credentials...")
+        try:
+            ok = asyncio.run(self.authenticate(settings))
+        except Exception:
+            ok = False
+
+        if ok:
+            typer.echo(f"  {self.manifest.display_name} credentials verified.\n")
+        else:
+            typer.echo(
+                f"  [WARNING] Could not connect to {self.manifest.display_name}.\n"
+                "  Check your credentials and try /connector-setup again.\n"
+                "  Credentials saved — re-run /connector-setup with correct credentials.\n"
+            )

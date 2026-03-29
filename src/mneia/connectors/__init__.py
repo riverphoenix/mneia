@@ -37,33 +37,25 @@ def _discover_builtins() -> None:
     from mneia.connectors.asana import AsanaConnector
     from mneia.connectors.chrome_history import ChromeHistoryConnector
     from mneia.connectors.confluence import ConfluenceConnector
-    from mneia.connectors.jira import JiraConnector
     from mneia.connectors.notion import NotionConnector
     from mneia.connectors.zoom import ZoomConnector
 
     _register(AppleNotesConnector)
     _register(AsanaConnector)
-    _register(JiraConnector)
     _register(ConfluenceConnector)
     _register(NotionConnector)
     _register(ZoomConnector)
     _register(ChromeHistoryConnector)
 
-    from mneia.connectors.audio_transcription import AudioTranscriptionConnector
     from mneia.connectors.github import GitHubConnector
     from mneia.connectors.granola import GranolaConnector
-    from mneia.connectors.linear import LinearConnector
     from mneia.connectors.local_folders import LocalFoldersConnector
     from mneia.connectors.slack import SlackConnector
-    from mneia.connectors.todoist import TodoistConnector
 
-    _register(AudioTranscriptionConnector)
     _register(GitHubConnector)
     _register(GranolaConnector)
-    _register(LinearConnector)
     _register(LocalFoldersConnector)
     _register(SlackConnector)
-    _register(TodoistConnector)
 
 
 def _discover_third_party() -> None:

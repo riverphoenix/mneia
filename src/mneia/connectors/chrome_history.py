@@ -33,6 +33,41 @@ def _default_chrome_history_path() -> Path | None:
     return None
 
 
+def _find_chrome_history() -> list[Path]:
+    """Search common Chrome-based browser locations and return existing History files."""
+    system = platform.system()
+    home = Path.home()
+    candidates: list[Path] = []
+
+    if system == "Darwin":
+        candidates = [
+            home / "Library/Application Support/Google/Chrome/Default/History",
+            home / "Library/Application Support/Google/Chrome Canary/Default/History",
+            home / "Library/Application Support/BraveSoftware/Brave-Browser/Default/History",
+            home / "Library/Application Support/Microsoft Edge/Default/History",
+            home / "Library/Application Support/Chromium/Default/History",
+        ]
+    elif system == "Linux":
+        candidates = [
+            home / ".config/google-chrome/Default/History",
+            home / ".config/google-chrome-beta/Default/History",
+            home / ".config/chromium/Default/History",
+            home / ".config/BraveSoftware/Brave-Browser/Default/History",
+            home / "snap/chromium/current/.config/chromium/Default/History",
+        ]
+    elif system == "Windows":
+        local = home / "AppData/Local"
+        candidates = [
+            local / "Google/Chrome/User Data/Default/History",
+            local / "Google/Chrome Beta/User Data/Default/History",
+            local / "BraveSoftware/Brave-Browser/User Data/Default/History",
+            local / "Microsoft/Edge/User Data/Default/History",
+            local / "Chromium/User Data/Default/History",
+        ]
+
+    return [p for p in candidates if p.exists()]
+
+
 def _chrome_time_to_datetime(chrome_ts: int) -> datetime:
     if chrome_ts == 0:
         return datetime.now(timezone.utc)
@@ -169,17 +204,29 @@ class ChromeHistoryConnector(BaseConnector):
     def interactive_setup(self) -> dict[str, Any]:
         import typer
 
-        default_path = _default_chrome_history_path()
-        typer.echo("\n  Chrome History setup — reads your local browsing history.")
-        typer.echo("  Chrome must be closed (or history is copied read-only).\n")
+        found = _find_chrome_history()
+        if found:
+            typer.echo(f"\n  Chrome history found at: {found[0]}")
+            if len(found) > 1:
+                for i, p in enumerate(found):
+                    typer.echo(f"  [{i}] {p}")
+                choice = typer.prompt(
+                    "  Select browser (0 for first, or enter full path)",
+                    default="0",
+                )
+                try:
+                    idx = int(choice)
+                    if 0 <= idx < len(found):
+                        if str(found[idx]) == str(found[0]):
+                            return {}
+                        return {"history_path": str(found[idx])}
+                except ValueError:
+                    return {"history_path": choice}
+            return {}
 
-        if default_path and default_path.exists():
-            typer.echo(f"  Found Chrome history at: {default_path}")
-            use_default = typer.confirm("  Use this path?", default=True)
-            if use_default:
-                return {}
-
-        path = typer.prompt("  Path to Chrome History file")
+        typer.echo("\n  Chrome history not found at standard locations.")
+        typer.echo("  Please provide the path to your browser's History file.")
+        path = typer.prompt("  Path to History file")
         return {"history_path": path}
 
     def _is_excluded_domain(self, url: str) -> bool:

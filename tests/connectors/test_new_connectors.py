@@ -1,47 +1,6 @@
 from __future__ import annotations
 
 from mneia.connectors.github import GitHubConnector
-from mneia.connectors.slack import SlackConnector
-
-
-def test_slack_manifest():
-    c = SlackConnector()
-    assert c.manifest.name == "slack"
-    assert c.manifest.auth_type == "bot_token"
-
-
-async def test_slack_authenticate():
-    c = SlackConnector()
-    result = await c.authenticate({"slack_token": "xoxb-test"})
-    assert result is True
-    assert c._token == "xoxb-test"
-
-
-async def test_slack_authenticate_no_token():
-    c = SlackConnector()
-    result = await c.authenticate({})
-    assert result is False
-
-
-def test_slack_message_to_document():
-    c = SlackConnector()
-    msg = {
-        "text": "Hello world",
-        "ts": "1700000000.000000",
-        "user": "U123",
-    }
-    doc = c._message_to_document(msg, "C456")
-    assert doc is not None
-    assert doc.source == "slack"
-    assert doc.content == "Hello world"
-    assert "U123" in doc.participants
-
-
-def test_slack_message_empty_text():
-    c = SlackConnector()
-    msg = {"text": "", "ts": "123", "user": "U1"}
-    doc = c._message_to_document(msg, "C1")
-    assert doc is None
 
 
 def test_github_manifest():
@@ -98,15 +57,39 @@ def test_github_pr_to_document():
     assert "merged" in doc.content
 
 
+def test_github_detect_token_env(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_env_token")
+    token, source = GitHubConnector._detect_github_token()
+    assert token == "ghp_env_token"
+    assert "$GITHUB_TOKEN" in source
+
+
+def test_github_detect_token_missing(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    token, source = GitHubConnector._detect_github_token()
+    # May or may not find gh CLI config — just check types
+    assert isinstance(token, str)
+    assert isinstance(source, str)
+
+
 def test_all_connectors_registered():
     from mneia.connectors import get_available_connectors
 
     manifests = get_available_connectors()
     names = {m.name for m in manifests}
-    assert "slack" in names
     assert "github" in names
-    assert "confluence" in names
-    assert "notion" in names
     assert "google-drive" in names
     assert "apple-notes" in names
     assert "chrome-history" in names
+    assert "obsidian" in names
+    assert "gmail" in names
+    # Removed connectors must not appear
+    assert "slack" not in names
+    assert "jira" not in names
+    assert "linear" not in names
+    assert "todoist" not in names
+    assert "zoom" not in names
+    assert "asana" not in names
+    assert "confluence" not in names
+    assert "notion" not in names

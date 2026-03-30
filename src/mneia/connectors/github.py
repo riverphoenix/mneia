@@ -85,21 +85,118 @@ class GitHubConnector(BaseConnector):
     def interactive_setup(self) -> dict[str, Any]:
         import typer
 
-        typer.echo("\n  GitHub setup — requires a Personal Access Token.")
-        typer.echo(
-            "  Create one at: https://github.com/settings/tokens\n"
-        )
+        typer.echo("\n  GitHub setup")
 
-        token = typer.prompt("  GitHub token", hide_input=True)
-        repos = typer.prompt(
-            "  Repos (owner/repo, comma-separated)", default="",
-        )
+        token, token_source = self._detect_github_token()
+        username = ""
+
+        if token:
+            typer.echo(f"  Found existing token ({token_source})")
+            use_found = typer.confirm("  Use this token?", default=True)
+            if not use_found:
+                token = typer.prompt("  GitHub token", hide_input=True)
+                token_source = "manual"
+            else:
+                username = self._get_username_from_gh_cli()
+        else:
+            typer.echo("  No existing token found.")
+            typer.echo("  Create one at: https://github.com/settings/tokens")
+            token = typer.prompt("  GitHub token", hide_input=True)
+
+        if not username:
+            username = typer.prompt("  GitHub username (to find your repos)", default="")
 
         settings: dict[str, Any] = {"github_token": token}
-        if repos:
-            settings["repos"] = repos
+
+        if username:
+            discovered = self._discover_user_repos(token, username)
+            if discovered:
+                typer.echo(f"\n  Found {len(discovered)} repos for @{username}:")
+                for r in discovered[:8]:
+                    typer.echo(f"    {r}")
+                if len(discovered) > 8:
+                    typer.echo(f"    ... and {len(discovered) - 8} more")
+                repos_input = typer.prompt(
+                    "\n  Repos to sync (comma-separated, or Enter for all listed)",
+                    default=",".join(discovered),
+                )
+            else:
+                repos_input = typer.prompt(
+                    "  Repos (owner/repo, comma-separated)", default="",
+                )
+        else:
+            repos_input = typer.prompt(
+                "  Repos (owner/repo, comma-separated)", default="",
+            )
+
+        if repos_input:
+            settings["repos"] = repos_input
+
         self._verify_setup(settings)
         return settings
+
+    @staticmethod
+    def _detect_github_token() -> tuple[str, str]:
+        """Return (token, source) from env vars or gh CLI config. Returns ('', '') if not found."""
+        import os
+        from pathlib import Path
+
+        for env_var in ("GITHUB_TOKEN", "GH_TOKEN"):
+            token = os.environ.get(env_var, "")
+            if token:
+                return token, f"${env_var}"
+
+        gh_hosts = Path.home() / ".config" / "gh" / "hosts.yml"
+        if gh_hosts.exists():
+            try:
+                for line in gh_hosts.read_text().splitlines():
+                    stripped = line.strip()
+                    if stripped.startswith("oauth_token:"):
+                        token = stripped.split(":", 1)[-1].strip()
+                        if token:
+                            return token, "gh CLI"
+            except Exception:
+                pass
+
+        return "", ""
+
+    @staticmethod
+    def _get_username_from_gh_cli() -> str:
+        """Read GitHub username from gh CLI config if available."""
+        from pathlib import Path
+
+        gh_hosts = Path.home() / ".config" / "gh" / "hosts.yml"
+        if gh_hosts.exists():
+            try:
+                for line in gh_hosts.read_text().splitlines():
+                    stripped = line.strip()
+                    if stripped.startswith("user:"):
+                        return stripped.split(":", 1)[-1].strip()
+            except Exception:
+                pass
+        return ""
+
+    @staticmethod
+    def _discover_user_repos(token: str, username: str) -> list[str]:
+        """Fetch up to 30 repos for the given user via GitHub API."""
+        import httpx as _httpx
+
+        try:
+            resp = _httpx.get(
+                f"https://api.github.com/users/{username}/repos",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                params={"sort": "pushed", "per_page": 30},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                return [r["full_name"] for r in resp.json()]
+        except Exception:
+            pass
+        return []
 
     async def _fetch_issues(
         self, repo: str, since: datetime | None,

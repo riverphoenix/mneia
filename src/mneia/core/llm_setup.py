@@ -89,20 +89,6 @@ CONNECTOR_HELP: dict[str, dict[str, str]] = {
             "3. Try: mneia ask 'what documents have I worked on recently?'"
         ),
     },
-    "slack": {
-        "description": "Reads messages from Slack channels using a Bot token.",
-        "prerequisites": (
-            "A Slack App with Bot Token.\n"
-            "  Create at: https://api.slack.com/apps\n"
-            "  Required scopes: channels:history, channels:read"
-        ),
-        "setup_help": "You'll need your Slack Bot User OAuth Token (xoxb-...).",
-        "next_steps": (
-            "1. Start the daemon: mneia start -d\n"
-            "2. Messages polled every 5 minutes.\n"
-            "3. Try: mneia ask 'what was discussed in slack today?'"
-        ),
-    },
     "github": {
         "description": "Reads issues, PRs, and commits from GitHub repos.",
         "prerequisites": "A GitHub personal access token (classic or fine-grained).",
@@ -113,82 +99,7 @@ CONNECTOR_HELP: dict[str, dict[str, str]] = {
             "3. Try: mneia ask 'what PRs were merged recently?'"
         ),
     },
-    "notion": {
-        "description": "Reads pages from Notion workspaces.",
-        "prerequisites": (
-            "A Notion integration token.\n"
-            "  Create at: https://www.notion.so/my-integrations"
-        ),
-        "setup_help": "You'll need your Notion integration token.",
-        "next_steps": (
-            "1. Share pages/databases with your integration in Notion.\n"
-            "2. Start the daemon: mneia start -d\n"
-            "3. Pages sync periodically."
-        ),
-    },
-    "linear": {
-        "description": "Reads issues from Linear project management.",
-        "prerequisites": (
-            "A Linear API key.\n"
-            "  Create at: Linear Settings > API"
-        ),
-        "setup_help": "You'll need your Linear API key.",
-        "next_steps": (
-            "1. Start the daemon: mneia start -d\n"
-            "2. Issues sync periodically.\n"
-            "3. Try: mneia ask 'what are my open linear issues?'"
-        ),
-    },
-    "todoist": {
-        "description": "Reads tasks from Todoist.",
-        "prerequisites": (
-            "A Todoist API token.\n"
-            "  Find at: Todoist Settings > Integrations > Developer"
-        ),
-        "setup_help": "You'll need your Todoist API token.",
-        "next_steps": (
-            "1. Start the daemon: mneia start -d\n"
-            "2. Tasks sync periodically.\n"
-            "3. Try: mneia ask 'what tasks are due today?'"
-        ),
-    },
-    "asana": {
-        "description": "Reads tasks from Asana projects.",
-        "prerequisites": "An Asana personal access token.",
-        "setup_help": "You'll need your Asana PAT and project GID.",
-        "next_steps": (
-            "1. Start the daemon: mneia start -d\n"
-            "2. Tasks sync periodically."
-        ),
-    },
-    "confluence": {
-        "description": "Reads pages from Atlassian Confluence.",
-        "prerequisites": "Confluence URL, email, and API token.",
-        "setup_help": "You'll need your Confluence URL, email, and API token.",
-        "next_steps": (
-            "1. Start the daemon: mneia start -d\n"
-            "2. Pages sync periodically."
-        ),
-    },
-    "jira": {
-        "description": "Reads issues from Atlassian Jira.",
-        "prerequisites": "Jira URL, email, and API token.",
-        "setup_help": "You'll need your Jira URL, email, and API token.",
-        "next_steps": (
-            "1. Start the daemon: mneia start -d\n"
-            "2. Issues sync periodically."
-        ),
-    },
-    "zoom": {
-        "description": "Reads meeting recordings and transcripts from Zoom.",
-        "prerequisites": "Zoom Server-to-Server OAuth credentials.",
-        "setup_help": "You'll need Account ID, Client ID, and Client Secret from Zoom Marketplace.",
-        "next_steps": (
-            "1. Start the daemon: mneia start -d\n"
-            "2. Recordings sync periodically."
-        ),
-    },
-    "chrome_history": {
+    "chrome-history": {
         "description": "Reads browsing history from Chrome.",
         "prerequisites": "Chrome must be installed. History DB is read locally.",
         "setup_help": "No credentials needed. Optionally filter by domain.",
@@ -197,16 +108,7 @@ CONNECTOR_HELP: dict[str, dict[str, str]] = {
             "2. Start the daemon for continuous sync."
         ),
     },
-    "audio_transcription": {
-        "description": "Transcribes audio files using Whisper.",
-        "prerequisites": "Install audio extras: pip install 'mneia[audio]'",
-        "setup_help": "You'll need the path to your audio files directory.",
-        "next_steps": (
-            "1. Place audio files in the configured directory.\n"
-            "2. Run mneia connector sync audio_transcription."
-        ),
-    },
-    "local_folders": {
+    "local-folders": {
         "description": "Scan and monitor local directories for text, code, and PDF files.",
         "prerequisites": "One or more local directories to scan. BM25 search is included.",
         "setup_help": "You'll provide folder paths to scan. Optionally configure file extensions and exclusion patterns.",
@@ -224,7 +126,7 @@ CONNECTOR_HELP: dict[str, dict[str, str]] = {
             "2. Meeting notes are synced automatically."
         ),
     },
-    "apple_notes": {
+    "apple-notes": {
         "description": "Reads notes from Apple Notes on macOS.",
         "prerequisites": "macOS with Apple Notes app.",
         "setup_help": "No credentials needed.",

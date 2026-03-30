@@ -34,28 +34,18 @@ def _discover_builtins() -> None:
     _register(GoogleDriveConnector)
 
     from mneia.connectors.apple_notes import AppleNotesConnector
-    from mneia.connectors.asana import AsanaConnector
     from mneia.connectors.chrome_history import ChromeHistoryConnector
-    from mneia.connectors.confluence import ConfluenceConnector
-    from mneia.connectors.notion import NotionConnector
-    from mneia.connectors.zoom import ZoomConnector
 
     _register(AppleNotesConnector)
-    _register(AsanaConnector)
-    _register(ConfluenceConnector)
-    _register(NotionConnector)
-    _register(ZoomConnector)
     _register(ChromeHistoryConnector)
 
     from mneia.connectors.github import GitHubConnector
     from mneia.connectors.granola import GranolaConnector
     from mneia.connectors.local_folders import LocalFoldersConnector
-    from mneia.connectors.slack import SlackConnector
 
     _register(GitHubConnector)
     _register(GranolaConnector)
     _register(LocalFoldersConnector)
-    _register(SlackConnector)
 
 
 def _discover_third_party() -> None:

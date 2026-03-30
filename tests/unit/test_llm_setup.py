@@ -74,6 +74,6 @@ def test_list_ollama_models_success(mock_get: MagicMock) -> None:
 
 
 def test_connector_help_covers_common_connectors() -> None:
-    expected = ["obsidian", "slack", "github", "gmail", "notion", "linear"]
+    expected = ["obsidian", "github", "gmail", "chrome-history", "apple-notes"]
     for name in expected:
         assert name in CONNECTOR_HELP, f"Missing help for {name}"

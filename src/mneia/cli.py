@@ -634,6 +634,15 @@ def connector_sync(name: str) -> None:
     """Trigger immediate sync for a connector."""
     config = MneiaConfig.load()
     conn_config = config.connectors.get(name)
+
+    # Resolve account-based names (e.g. "google-drive" → "google-drive-personal")
+    if not conn_config or not conn_config.enabled:
+        for key, cc in config.connectors.items():
+            if key.startswith(f"{name}-") and cc.enabled:
+                name = key
+                conn_config = cc
+                break
+
     if not conn_config or not conn_config.enabled:
         console.print(f"[red]Connector {name} is not enabled.[/red]")
         raise typer.Exit(1)

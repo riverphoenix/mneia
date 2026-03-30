@@ -137,14 +137,28 @@ class GitHubConnector(BaseConnector):
 
     @staticmethod
     def _detect_github_token() -> tuple[str, str]:
-        """Return (token, source) from env vars or gh CLI config. Returns ('', '') if not found."""
+        """Return (token, source) from env vars, gh CLI, or config file. Returns ('', '') if not found."""
         import os
+        import shutil
+        import subprocess
         from pathlib import Path
 
         for env_var in ("GITHUB_TOKEN", "GH_TOKEN"):
             token = os.environ.get(env_var, "")
             if token:
                 return token, f"${env_var}"
+
+        if shutil.which("gh"):
+            try:
+                result = subprocess.run(
+                    ["gh", "auth", "token"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                token = result.stdout.strip()
+                if token:
+                    return token, "gh CLI (keychain)"
+            except Exception:
+                pass
 
         gh_hosts = Path.home() / ".config" / "gh" / "hosts.yml"
         if gh_hosts.exists():
@@ -154,7 +168,7 @@ class GitHubConnector(BaseConnector):
                     if stripped.startswith("oauth_token:"):
                         token = stripped.split(":", 1)[-1].strip()
                         if token:
-                            return token, "gh CLI"
+                            return token, "gh CLI config"
             except Exception:
                 pass
 

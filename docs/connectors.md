@@ -125,25 +125,6 @@ mneia connector sync asana
 - Supports modified_since filtering
 - Auto-detects workspace if not specified
 
-### JIRA
-
-Reads issues from Atlassian JIRA.
-
-**Auth:** API token (email + token)
-**Mode:** Poll
-**Setup:**
-```bash
-mneia connector enable jira
-mneia connector setup jira
-mneia connector sync jira
-```
-
-**Features:**
-- Fetches issues via JQL queries
-- Extracts Atlassian Document Format (ADF) descriptions
-- Includes last 5 comments per issue
-- Extracts assignee, reporter, status, priority, labels
-
 ### Confluence
 
 Reads pages from Atlassian Confluence.
@@ -230,55 +211,6 @@ mneia connector sync chrome-history
 | `scrape_max_pages` | `20` | Max pages to scrape per sync |
 | `scrape_domains_exclude` | (empty) | Comma-separated domains to skip |
 
-### Audio Transcription
-
-Transcribes audio files using whisper.cpp or faster-whisper.
-
-**Auth:** Local filesystem
-**Mode:** Poll
-**Setup:**
-```bash
-pip install faster-whisper  # or: brew install whisper-cpp
-mneia connector enable audio-transcription
-mneia connector setup audio-transcription
-mneia connector sync audio-transcription
-```
-
-**Features:**
-- Supports MP3, WAV, M4A, OGG, FLAC, WebM, MP4
-- Auto-detects backend (faster-whisper or whisper-cpp)
-- Configurable model size (tiny/base/small/medium/large)
-- Configurable language
-
-### Live Audio
-
-Captures system audio in real-time during meetings and transcribes using whisper.
-
-**Auth:** Sounddevice (requires virtual audio device on macOS)
-**Mode:** Watch (continuous recording)
-**Setup:**
-```bash
-pip install mneia[audio]    # Installs sounddevice
-mneia connector enable live-audio
-mneia connector setup live-audio
-```
-
-**Features:**
-- Records audio in 30-second chunks at 16kHz mono
-- Real-time transcription via shared transcription engine
-- Yields `live_transcript` documents with meeting metadata
-- macOS: requires BlackHole virtual audio device
-- Linux: uses PulseAudio monitor source
-- Generates meeting_id for grouping chunks
-- Requires HIGH-level safety permission
-
-**Settings:**
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `device_index` | (auto) | Audio input device index |
-| `model` | `base` | Whisper model size |
-| `language` | `en` | Transcription language |
-
 ### Slack
 
 Reads channel messages from Slack workspaces.
@@ -330,55 +262,6 @@ mneia connector sync github
 | `github_token` | (required) | Personal Access Token |
 | `repos` | (required) | Comma-separated `owner/repo` list |
 
-### Linear
-
-Reads issues and projects from Linear via GraphQL API.
-
-**Auth:** API key
-**Mode:** Poll
-**Setup:**
-```bash
-mneia connector enable linear
-mneia connector setup linear
-mneia connector sync linear
-```
-
-**Features:**
-- Fetches issues with state, priority, labels, team
-- Priority mapping: 1=Urgent, 2=High, 3=Medium, 4=Low
-- Optional team filtering
-- Date-based incremental sync
-
-**Settings:**
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `linear_api_key` | (required) | Linear API key |
-| `team_ids` | (optional) | Comma-separated team IDs |
-
-### Todoist
-
-Reads tasks and projects from Todoist.
-
-**Auth:** API token
-**Mode:** Poll
-**Setup:**
-```bash
-mneia connector enable todoist
-mneia connector setup todoist
-mneia connector sync todoist
-```
-
-**Features:**
-- Fetches active tasks with project mapping
-- Extracts priority, due dates, labels
-- Maps project IDs to project names
-- Supports incremental sync
-
-**Settings:**
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `todoist_api_token` | (required) | Todoist API token |
-
 ## Connector Modes
 
 Connectors operate in one of two modes:
@@ -386,7 +269,7 @@ Connectors operate in one of two modes:
 | Mode | Description | Connectors |
 |------|-------------|------------|
 | **Poll** | Fetches data at configured intervals | Most connectors |
-| **Watch** | Real-time event-based detection | Obsidian, Live Audio |
+| **Watch** | Real-time event-based detection | Obsidian, Local Folders |
 
 Watch mode uses `watchfiles` for filesystem events with 500ms debouncing and extension filtering. Poll mode uses configurable intervals (default: 300 seconds).
 

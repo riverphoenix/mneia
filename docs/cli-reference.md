@@ -2,9 +2,9 @@
 
 ## Global Options
 
-mneia supports both direct CLI commands and an interactive REPL mode.
+mneia supports both direct CLI commands and an interactive REPL mode (the default).
 
-- `mneia` (no args) — Enter interactive mode
+- `mneia` (no args) — Enter interactive REPL (default)
 - `mneia <command>` — Execute a command directly
 
 ---

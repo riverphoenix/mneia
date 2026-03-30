@@ -12,13 +12,13 @@ Autonomous multi-agent personal knowledge system. mneia connects to your apps (r
 
 ## What it does
 
-- **Connects** to 19 data sources (Calendar, Gmail, Obsidian, Local Folders, Slack, GitHub, and more) — read-only, always
+- **Connects** to 14 data sources (Calendar, Gmail, Obsidian, Local Folders, Slack, GitHub, and more) — read-only, always
 - **Learns** by extracting entities, relationships, and patterns via GLiNER NER + LLM structured extraction
 - **Remembers** everything locally in a temporal knowledge graph with vector embeddings — nothing leaves your machine
 - **Thinks** autonomously — identifies gaps, proposes connections, and surfaces insights
 - **Generates** `.md` context files for Claude Code, Cursor, and other AI tools
 - **Serves** as an MCP server so AI tools can query your knowledge directly
-- **Converses** with you through a beautiful terminal UI with search, chat, and graph browser
+- **Converses** with you through an interactive REPL with search, chat, and graph queries
 
 ## Install
 
@@ -41,36 +41,38 @@ pip install 'mneia[all]'
 ## Quick Start
 
 ```bash
-# Just run it — the TUI handles everything
-mneia
-```
-
-The TUI auto-starts the daemon, shows a dashboard, and guides you through setup. No manual config needed.
-
-For headless/server use:
-
-```bash
-mneia config setup           # Interactive setup wizard
+mneia config setup           # Configure LLM provider (Ollama, Anthropic, or OpenAI)
 mneia connector enable obsidian
 mneia connector setup obsidian
 mneia start -d               # Start daemon in background
+mneia                        # Enter interactive REPL
 ```
 
-## Terminal UI
+Or for immediate one-off queries without the daemon:
 
-Running `mneia` launches a full Textual TUI with:
+```bash
+mneia ask "what did I discuss with Alice last week?"
+mneia memory search "project deadline"
+```
 
-- **Dashboard** — stats panels, agent status, recent activity, quick actions
-- **Search** — hybrid search with BM25 + vector + cross-encoder reranking, document preview
-- **Chat** — multi-turn RAG conversation with citations and follow-ups
-- **Agents** — live agent status with start/stop controls
-- **Sources** — connector list, enable/disable, setup wizard
-- **Graph** — knowledge graph browser with entity types, relationships, trending entities
-- **Settings** — LLM provider, model, behavior configuration
+## Interactive Mode
 
-Navigate with sidebar, keyboard shortcuts (1-7), or `/slash` commands in the command bar.
+Running `mneia` with no arguments enters an interactive REPL with:
 
-For the classic REPL experience: `mneia repl`
+- **Slash commands** — `/search`, `/ask`, `/graph`, `/sync`, `/agents`, and more
+- **Natural language routing** — type plain text and mneia detects intent automatically
+- **RAG conversations** — queries your knowledge base with context-aware LLM responses and citations
+- **Session memory** — conversations are summarized and injected as context on next session
+- **Tab completion** and **command history**
+
+```
+mneia › /search project alpha
+mneia › who did I meet with at the last planning session?
+mneia › /graph-person Alice
+mneia › /sync obsidian
+```
+
+For all available commands: `mneia --help` or type `/help` in the REPL.
 
 ## MCP Server
 
@@ -114,7 +116,7 @@ mneia config reset         # Reset to defaults
 mneia connector list                  # List connectors and status
 mneia connector enable <name>         # Enable a connector
 mneia connector disable <name>        # Disable a connector
-mneia connector setup <name>          # Interactive connector setup
+mneia connector setup <name>          # Interactive connector setup (validates credentials)
 mneia connector sync <name>           # Trigger immediate sync
 mneia connector start-agent <name>    # Start a connector's listener agent
 mneia connector stop-agent <name>     # Stop a connector's listener agent
@@ -159,7 +161,7 @@ mneia context link <target-dir>       # Symlink context to a project directory
 ```bash
 mneia ask <question> [--source <name>]  # Single query with RAG
 mneia chat                              # Multi-turn conversation mode
-mneia repl                              # Classic interactive REPL mode
+mneia                                   # Interactive REPL (default)
 ```
 
 ### Permissions
@@ -208,27 +210,23 @@ mneia update                          # Check for updates
 | Google Drive | Files, Docs, Sheets, Slides | OAuth2 (readonly) | Poll |
 | Apple Notes | macOS Notes app | AppleScript | Poll |
 | Asana | Projects & tasks | API token | Poll |
-| JIRA | Tickets | API token | Poll |
 | Confluence | Wiki pages | API token | Poll |
 | Notion | Pages & databases | Bearer token | Poll |
 | Zoom | Meeting recordings & transcripts | OAuth2 (S2S) | Poll |
 | Chrome History | Browser history + page content | Local SQLite | Poll |
-| Audio Transcription | Audio files (WAV, MP3, M4A) | Local (whisper) | Poll |
 | Granola | Meeting notes (markdown) | Local files | Poll |
 | Local Folders | Text, code, PDF files | Local files | Watch |
 | Slack | Channel messages | Bot token | Poll |
 | GitHub | Issues & pull requests | PAT | Poll |
-| Linear | Issues & projects | API key | Poll |
-| Todoist | Tasks & projects | API token | Poll |
 
 Multi-account support: Gmail, Google Calendar, and Google Drive support multiple accounts (e.g., `gmail-work`, `gmail-personal`).
 
 ## Architecture
 
 ```
-TUI (Textual) ──── CLI (Typer) ──── MCP Server (stdio)
+CLI (Typer) ──── Interactive REPL ──── MCP Server (stdio)
      |                  |
-  EmbeddedDaemon    Unix Socket IPC
+  Unix Socket IPC       |
      |                  |
   AgentManager ─────────┘
    /    |    \      \         \
@@ -241,11 +239,11 @@ Connectors Pipeline               ReasoningEngine
   |        Rerank → Associate
   |        → Summarize → Generate
   |                        |
-MemoryStore (SQLite+FTS5)  .md Context Files
-VectorStore (ChromaDB)     (~/.mneia/context/)
-KnowledgeGraph (NetworkX + temporal)
-GraphRAG (LightRAG, optional)
-CognitiveMemory (Cognee, optional)
+ MemoryStore (SQLite+FTS5)  .md Context Files
+ VectorStore (ChromaDB)     (~/.mneia/context/)
+ KnowledgeGraph (NetworkX + temporal)
+ GraphRAG (LightRAG, optional)
+ CognitiveMemory (Cognee, optional)
 ```
 
 **Agent Types:**
@@ -292,7 +290,7 @@ The knowledge graph tracks when entities and relationships were first seen, last
 Operations are classified by risk level:
 - **LOW** — auto-approved (searches, reads)
 - **MEDIUM** — requires user consent (web scraping, sync)
-- **HIGH** — requires explicit approval (filesystem scanning, audio transcription)
+- **HIGH** — requires explicit approval (filesystem scanning)
 - **CRITICAL** — always prompts (data purge)
 
 Pre-approve operations with `mneia permission grant <operation>`.
@@ -309,7 +307,7 @@ Pre-approve operations with `mneia permission grant <operation>`.
 1. **Read-only** — Connectors never modify your data. No sending, no editing, no deleting.
 2. **Local-only** — All data stays on your machine. No cloud sync. No telemetry.
 3. **Open source** — MIT licensed. Inspect every line. Fork and customize.
-4. **Zero-config** — `pip install mneia && mneia` — the TUI handles the rest.
+4. **Credential validation** — Setup verifies credentials immediately — no silent failures.
 
 ## Optional Extras
 
@@ -318,7 +316,6 @@ pip install 'mneia[intelligence]'  # GLiNER NER + Instructor + Rerankers
 pip install 'mneia[vector]'        # ChromaDB vector search
 pip install 'mneia[graphrag]'      # LightRAG graph-augmented retrieval
 pip install 'mneia[cognitive]'     # Cognee cognitive memory
-pip install 'mneia[audio]'         # Whisper audio transcription
 pip install 'mneia[web]'           # Web scraping (crawl4ai + playwright)
 pip install 'mneia[mcp]'           # MCP server for AI tool integration
 pip install 'mneia[all]'           # Everything
@@ -329,8 +326,8 @@ pip install 'mneia[all]'           # Everything
 Third-party connectors are pip packages using Python entry points:
 
 ```bash
-mneia marketplace search slack
-mneia marketplace install slack
+mneia marketplace search myservice
+mneia marketplace install myservice
 ```
 
 Build your own: implement `BaseConnector` and publish as `mneia-connector-yourname`.
@@ -353,7 +350,7 @@ pytest tests/integration/       # CLI integration tests
 pytest -v                       # All tests with verbose output
 ```
 
-574 tests covering all agents, connectors, pipeline stages, TUI, and core infrastructure.
+564 tests covering all agents, connectors, pipeline stages, and core infrastructure.
 
 ## License
 

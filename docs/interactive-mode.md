@@ -1,6 +1,6 @@
 # Interactive Mode
 
-mneia's interactive mode provides a REPL interface with slash commands, natural language intent detection, and LLM-powered conversational queries.
+mneia's default mode is an interactive REPL with slash commands, natural language intent detection, and LLM-powered conversational queries.
 
 ## Starting Interactive Mode
 

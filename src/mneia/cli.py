@@ -608,6 +608,17 @@ def connector_setup(name: str) -> None:
         if manifest.optional_config:
             console.print(f"  [dim]Optional: {', '.join(manifest.optional_config)}[/dim]\n")
 
+    existing = config.connectors.get(name)
+    if existing and existing.enabled:
+        console.print(f"\n[green]{name}[/green] is already configured.")
+        reconfigure = typer.confirm("  Reconfigure? (removes previous settings)", default=False)
+        if not reconfigure:
+            console.print("[dim]Keeping existing configuration.[/dim]")
+            return
+        console.print("[dim]Removing previous configuration...[/dim]")
+        del config.connectors[name]
+        config.save()
+
     if name not in config.connectors:
         from mneia.config import ConnectorConfig
 

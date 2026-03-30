@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.completion import Completer, Completion, WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from rich.console import Console
@@ -78,6 +78,22 @@ def _get_thinking_phrase() -> str:
     return random.choice(THINKING_PHRASES)
 
 
+_ALL_COMMANDS = sorted(SLASH_COMMANDS.keys())
+
+
+class SlashCompleter(Completer):
+    """Completes / commands anywhere in the input when text starts with /."""
+
+    def get_completions(self, document, complete_event):  # type: ignore[override]
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        word = text.split()[0] if text.split() else text
+        for cmd in _ALL_COMMANDS:
+            if cmd.startswith(word):
+                yield Completion(cmd, start_position=-len(word))
+
+
 class InteractiveSession:
     def __init__(self) -> None:
         ensure_dirs()
@@ -85,10 +101,7 @@ class InteractiveSession:
         self._ollama_available: bool | None = None
         self._history_file = MNEIA_DIR / "history.txt"
         self._conversation_engine: Any = None
-        self._completer = WordCompleter(
-            list(SLASH_COMMANDS.keys()) + ["/quit", "/chat"],
-            sentence=True,
-        )
+        self._completer = SlashCompleter()
 
     def run(self) -> None:
         console.print(BANNER)
@@ -97,6 +110,7 @@ class InteractiveSession:
 
         self._check_ollama_status()
         self._show_quick_status()
+        self._auto_start_daemon()
 
         session: PromptSession[str] = PromptSession(
             history=FileHistory(str(self._history_file)),
@@ -123,7 +137,8 @@ class InteractiveSession:
                 console.print()
                 continue
             except EOFError:
-                console.print("\n[dim]Goodbye.[/dim]")
+                console.print()
+                self._on_exit()
                 break
             except Exception as e:
                 console.print(f"\n[red]Error: {e}[/red]\n")
@@ -224,13 +239,42 @@ class InteractiveSession:
 
         console.print()
 
+    def _auto_start_daemon(self) -> None:
+        from mneia.config import SOCKET_PATH
+
+        if SOCKET_PATH.exists():
+            return
+
+        enabled = [n for n, c in self.config.connectors.items() if c.enabled]
+        if not enabled:
+            return
+
+        console.print(
+            "  [dim]Starting background daemon for "
+            f"[cyan]{len(enabled)}[/cyan] connector(s)...[/dim]"
+        )
+        self._cmd_start_daemon()
+
+    def _on_exit(self) -> None:
+        from mneia.config import SOCKET_PATH
+
+        if SOCKET_PATH.exists():
+            console.print(
+                "[dim]Goodbye. Daemon continues running in the background.[/dim]"
+            )
+            console.print(
+                "  [dim]Use [cyan]mneia stop[/cyan] or [cyan]/stop[/cyan] to stop it.[/dim]"
+            )
+        else:
+            console.print("[dim]Goodbye.[/dim]")
+
     def _handle_command(self, raw: str) -> bool:
         parts = raw.split(None, 1)
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
 
         if cmd in ("/exit", "/quit"):
-            console.print("[dim]Goodbye.[/dim]")
+            self._on_exit()
             return False
 
         elif cmd == "/help":
@@ -460,10 +504,22 @@ class InteractiveSession:
         available = get_available_connectors()
         for m in available:
             conn_config = self.config.connectors.get(m.name)
+            if not conn_config:
+                # check for multi-account entries like google-drive-personal
+                accounts = [
+                    k for k in self.config.connectors
+                    if k.startswith(f"{m.name}-") and self.config.connectors[k].enabled
+                ]
+                if accounts:
+                    for acct in accounts:
+                        console.print(
+                            f"  [green]●[/green] [cyan]{acct}[/cyan] — {m.display_name}"
+                        )
+                    continue
             if conn_config and conn_config.enabled:
                 console.print(f"  [green]●[/green] [cyan]{m.name}[/cyan] — {m.display_name}")
             else:
-                console.print(f"  [dim]○ {m.name} — {m.display_name}[/dim]")
+                console.print(f"  [dim]○ {m.name}[/dim] — {m.display_name} [dim](run /connector-setup {m.name})[/dim]")
 
     def _cmd_sync(self, name: str) -> None:
         conn_config = self.config.connectors.get(name)
@@ -1166,6 +1222,17 @@ class InteractiveSession:
             console.print(f"    {help_info['setup_help']}\n")
         else:
             console.print(f"  [dim]{manifest.description}[/dim]\n")
+
+        existing = self.config.connectors.get(name)
+        if existing and existing.enabled:
+            console.print(f"\n  [green]{name}[/green] is already configured.")
+            reconfigure = input("  Reconfigure? (y/N): ").strip().lower()
+            if reconfigure != "y":
+                console.print("  [dim]Keeping existing configuration.[/dim]")
+                return
+            console.print("  [dim]Removing previous configuration...[/dim]")
+            del self.config.connectors[name]
+            self.config.save()
 
         if name not in self.config.connectors:
             self.config.connectors[name] = ConnectorConfig(enabled=True)

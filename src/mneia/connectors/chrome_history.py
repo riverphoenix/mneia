@@ -106,7 +106,12 @@ class ChromeHistoryConnector(BaseConnector):
         if path_str:
             self._history_path = Path(path_str)
         else:
-            self._history_path = _default_chrome_history_path()
+            default = _default_chrome_history_path()
+            if default and default.exists():
+                self._history_path = default
+            else:
+                found = _find_chrome_history()
+                self._history_path = found[0] if found else default
 
         if not self._history_path or not self._history_path.exists():
             logger.error(f"Chrome history not found at: {self._history_path}")
@@ -205,29 +210,29 @@ class ChromeHistoryConnector(BaseConnector):
         import typer
 
         found = _find_chrome_history()
-        if found:
-            typer.echo(f"\n  Chrome history found at: {found[0]}")
-            if len(found) > 1:
-                for i, p in enumerate(found):
-                    typer.echo(f"  [{i}] {p}")
-                choice = typer.prompt(
-                    "  Select browser (0 for first, or enter full path)",
-                    default="0",
-                )
-                try:
-                    idx = int(choice)
-                    if 0 <= idx < len(found):
-                        if str(found[idx]) == str(found[0]):
-                            return {}
-                        return {"history_path": str(found[idx])}
-                except ValueError:
-                    return {"history_path": choice}
-            return {}
+        if not found:
+            typer.echo("\n  No Chrome-based browser history found at standard locations.")
+            typer.echo("  Please enter the full path to your browser's History file.")
+            typer.echo("  (e.g. ~/Library/Application Support/Google/Chrome/Default/History)")
+            path = typer.prompt("  History file path")
+            return {"history_path": path}
 
-        typer.echo("\n  Chrome history not found at standard locations.")
-        typer.echo("  Please provide the path to your browser's History file.")
-        path = typer.prompt("  Path to History file")
-        return {"history_path": path}
+        if len(found) == 1:
+            typer.echo(f"\n  Found browser history: {found[0]}")
+            return {"history_path": str(found[0])}
+
+        typer.echo("\n  Found multiple browser history files:")
+        for i, p in enumerate(found):
+            typer.echo(f"  [{i}] {p}")
+        choice = typer.prompt("  Select browser (number or press Enter for first)", default="0")
+        try:
+            idx = int(choice)
+            if 0 <= idx < len(found):
+                return {"history_path": str(found[idx])}
+        except ValueError:
+            if choice.strip():
+                return {"history_path": choice.strip()}
+        return {"history_path": str(found[0])}
 
     def _is_excluded_domain(self, url: str) -> bool:
         from urllib.parse import urlparse

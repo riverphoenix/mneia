@@ -470,17 +470,29 @@ class InteractiveSession:
         from mneia.memory.store import MemoryStore
 
         store = MemoryStore()
-        results = asyncio.run(store.search(query, limit=5))
+        results = asyncio.run(store.search(query, limit=20))
 
         if not results:
             console.print("[dim]No results found.[/dim]")
             return
 
+        # Diversify: cap 3 per source
+        seen_sources: dict[str, int] = {}
+        diverse: list = []
         for doc in results:
-            snippet = doc.content[:300].replace("\n", " ")
-            if len(doc.content) > 300:
+            if seen_sources.get(doc.source, 0) < 3:
+                seen_sources[doc.source] = seen_sources.get(doc.source, 0) + 1
+                diverse.append(doc)
+
+        for doc in diverse[:10]:
+            ts = doc.timestamp.strftime("%Y-%m-%d") if hasattr(doc.timestamp, "strftime") else str(doc.timestamp)[:10] if doc.timestamp else ""
+            snippet = doc.content[:250].replace("\n", " ")
+            if len(doc.content) > 250:
                 snippet += "..."
-            console.print(f"\n  [cyan]{doc.title}[/cyan] [dim]({doc.source})[/dim]")
+            console.print(
+                f"\n  [cyan]{doc.title}[/cyan]  "
+                f"[dim]{doc.source}{', ' + ts if ts else ''}[/dim]"
+            )
             console.print(f"  [dim]{snippet}[/dim]")
 
         console.print()

@@ -34,38 +34,59 @@ def _default_chrome_history_path() -> Path | None:
 
 
 def _find_chrome_history() -> list[Path]:
-    """Search common Chrome-based browser locations and return existing History files."""
+    """Search Chrome/Brave/Edge profile directories and return existing History files, largest first."""
+    import glob as _glob
+
     system = platform.system()
     home = Path.home()
-    candidates: list[Path] = []
+    found: list[Path] = []
 
     if system == "Darwin":
-        candidates = [
-            home / "Library/Application Support/Google/Chrome/Default/History",
-            home / "Library/Application Support/Google/Chrome Canary/Default/History",
-            home / "Library/Application Support/BraveSoftware/Brave-Browser/Default/History",
-            home / "Library/Application Support/Microsoft Edge/Default/History",
-            home / "Library/Application Support/Chromium/Default/History",
+        base_dirs = [
+            home / "Library/Application Support/Google/Chrome",
+            home / "Library/Application Support/Google/Chrome Beta",
+            home / "Library/Application Support/Google/Chrome Canary",
+            home / "Library/Application Support/BraveSoftware/Brave-Browser",
+            home / "Library/Application Support/Microsoft Edge",
+            home / "Library/Application Support/Chromium",
+        ]
+        user_data_dirs = [
+            home / "Library/Application Support/Google/Chrome/User Data",
         ]
     elif system == "Linux":
-        candidates = [
-            home / ".config/google-chrome/Default/History",
-            home / ".config/google-chrome-beta/Default/History",
-            home / ".config/chromium/Default/History",
-            home / ".config/BraveSoftware/Brave-Browser/Default/History",
-            home / "snap/chromium/current/.config/chromium/Default/History",
+        base_dirs = [
+            home / ".config/google-chrome",
+            home / ".config/google-chrome-beta",
+            home / ".config/chromium",
+            home / ".config/BraveSoftware/Brave-Browser",
         ]
+        user_data_dirs = []
     elif system == "Windows":
         local = home / "AppData/Local"
-        candidates = [
-            local / "Google/Chrome/User Data/Default/History",
-            local / "Google/Chrome Beta/User Data/Default/History",
-            local / "BraveSoftware/Brave-Browser/User Data/Default/History",
-            local / "Microsoft/Edge/User Data/Default/History",
-            local / "Chromium/User Data/Default/History",
+        base_dirs = [
+            local / "Google/Chrome/User Data",
+            local / "BraveSoftware/Brave-Browser/User Data",
+            local / "Microsoft/Edge/User Data",
+            local / "Chromium/User Data",
         ]
+        user_data_dirs = base_dirs[:]
+    else:
+        return []
 
-    return [p for p in candidates if p.exists()]
+    # Collect History files from Default + Profile N subdirs
+    search_roots = base_dirs + user_data_dirs
+    for base in search_roots:
+        if not base.exists():
+            continue
+        for pattern in ["Default/History", "Profile */History", "Profile*/History"]:
+            for p in sorted(base.glob(pattern)):
+                if p not in found:
+                    found.append(p)
+
+    # Sort by file size descending so the most-used profile comes first
+    found = [p for p in found if p.exists()]
+    found.sort(key=lambda p: p.stat().st_size, reverse=True)
+    return found
 
 
 def _chrome_time_to_datetime(chrome_ts: int) -> datetime:

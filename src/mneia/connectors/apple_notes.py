@@ -20,13 +20,19 @@ logger = logging.getLogger(__name__)
 APPLESCRIPT_LIST = '''
 tell application "Notes"
     set noteList to {}
-    repeat with n in notes
-        set noteId to id of n
-        set noteName to name of n
-        set noteBody to body of n
-        set noteDate to modification date of n
-        set noteFolder to name of container of n
-        set end of noteList to noteId & "|||" & noteName & "|||" & noteBody & "|||" & (noteDate as string) & "|||" & noteFolder & "###SEPARATOR###"
+    repeat with n in every note
+        try
+            set noteId to id of n
+            set noteName to name of n
+            set noteBody to body of n
+            set noteDate to modification date of n
+            try
+                set noteFolder to name of container of n
+            on error
+                set noteFolder to "Notes"
+            end try
+            set end of noteList to noteId & "|||" & noteName & "|||" & noteBody & "|||" & (noteDate as string) & "|||" & noteFolder & "###SEPARATOR###"
+        end try
     end repeat
     return noteList as string
 end tell

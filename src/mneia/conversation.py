@@ -15,7 +15,8 @@ from mneia.memory.vector_store import VectorStore
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY_TURNS = 10
-MAX_CONTEXT_CHARS = 6000
+MAX_CONTEXT_CHARS = 16000
+MAX_DOCS_PER_SOURCE = 4
 
 
 @dataclass
@@ -64,20 +65,20 @@ class ConversationEngine:
     ) -> ConversationResult:
         if source_filter:
             fts_results = await self._store.search(
-                question, limit=5, source=source_filter,
+                question, limit=30, source=source_filter,
             )
         elif source_hints:
             fts_results = await self._store.search(
-                question, limit=5, sources=source_hints,
+                question, limit=30, sources=source_hints,
             )
             if not fts_results:
-                fts_results = await self._store.search(question, limit=5)
+                fts_results = await self._store.search(question, limit=30)
         else:
-            fts_results = await self._store.search(question, limit=5)
+            fts_results = await self._store.search(question, limit=30)
 
-        vector_results = await self._vector_search(question, n_results=5)
+        vector_results = await self._vector_search(question, n_results=10)
 
-        doc_results = self._merge_results(fts_results, vector_results)
+        doc_results = self._merge_and_diversify(fts_results, vector_results)
 
         graph_context = self._get_graph_context(question)
 
@@ -187,18 +188,41 @@ class ConversationEngine:
     ) -> list[StoredDocument]:
         seen_ids: set[int] = set()
         merged: list[StoredDocument] = []
-
         for doc in fts_results:
             if doc.id not in seen_ids:
                 seen_ids.add(doc.id)
                 merged.append(doc)
-
         for doc in vector_results:
             if doc.id not in seen_ids:
                 seen_ids.add(doc.id)
                 merged.append(doc)
+        return merged[:20]
 
-        return merged[:10]
+    @staticmethod
+    def _merge_and_diversify(
+        fts_results: list[StoredDocument],
+        vector_results: list[StoredDocument],
+    ) -> list[StoredDocument]:
+        """Merge FTS and vector results, capping each source to MAX_DOCS_PER_SOURCE."""
+        seen_ids: set[int] = set()
+        source_counts: dict[str, int] = {}
+        first_pass: list[StoredDocument] = []
+        overflow: list[StoredDocument] = []
+
+        for doc in fts_results + vector_results:
+            if doc.id in seen_ids:
+                continue
+            seen_ids.add(doc.id)
+            count = source_counts.get(doc.source, 0)
+            if count < MAX_DOCS_PER_SOURCE:
+                source_counts[doc.source] = count + 1
+                first_pass.append(doc)
+            else:
+                overflow.append(doc)
+
+        # Fill remaining slots with overflow docs (keeps top-ranked ones per source)
+        result = first_pass + overflow
+        return result[:20]
 
     def clear_history(self) -> None:
         self._history.clear()
@@ -260,10 +284,12 @@ class ConversationEngine:
             parts.append("--- Documents ---")
             for doc in docs:
                 remaining = MAX_CONTEXT_CHARS - total_chars
-                if remaining <= 200:
+                if remaining <= 300:
                     break
-                snippet = doc.content[:min(1500, remaining)]
-                entry = f"[{doc.title} — {doc.source}]\n{snippet}"
+                snippet = doc.content[:min(2000, remaining - 100)]
+                ts = doc.timestamp.strftime("%Y-%m-%d") if hasattr(doc.timestamp, "strftime") else str(doc.timestamp)[:10] if doc.timestamp else ""
+                header = f"[{doc.title} — {doc.source}{', ' + ts if ts else ''}]"
+                entry = f"{header}\n{snippet}"
                 parts.append(entry)
                 parts.append("")
                 total_chars += len(entry)

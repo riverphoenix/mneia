@@ -32,7 +32,7 @@ def engine(config):
 async def test_ask_with_source_filter(engine):
     result = await engine.ask("test", source_filter="obsidian")
     engine._store.search.assert_called_once_with(
-        "test", limit=5, source="obsidian",
+        "test", limit=30, source="obsidian",
     )
 
 
@@ -41,14 +41,14 @@ async def test_ask_with_source_hints(engine):
         "what meetings today", source_hints=["google-calendar"],
     )
     engine._store.search.assert_any_call(
-        "what meetings today", limit=5, sources=["google-calendar"],
+        "what meetings today", limit=30, sources=["google-calendar"],
     )
 
 
 async def test_ask_no_filters(engine):
     result = await engine.ask("general question")
     engine._store.search.assert_called_once_with(
-        "general question", limit=5,
+        "general question", limit=30,
     )
 
 

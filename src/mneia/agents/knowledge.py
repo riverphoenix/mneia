@@ -42,6 +42,7 @@ class KnowledgeAgent(BaseAgent):
         self._connections_made = 0
         self._summaries_generated = 0
         self._last_processed_id = 0
+        self._cycle_count = 0
         self._hermes_agent: Any = None
         self._use_hermes = False
 
@@ -110,22 +111,28 @@ class KnowledgeAgent(BaseAgent):
         )
 
     async def _cycle(self) -> None:
+        self._cycle_count += 1
         unprocessed = await self._get_unprocessed_docs()
         if not unprocessed:
             logger.debug(f"{self.name}: no new documents to process")
-            return
-
-        logger.info(f"{self.name}: processing {len(unprocessed)} new documents")
-
-        if self._use_hermes and self._hermes_agent is not None:
-            await self._hermes_cycle(unprocessed)
         else:
-            await self._native_cycle(unprocessed)
+            logger.info(f"{self.name}: processing {len(unprocessed)} new documents")
 
-        await self._store.set_checkpoint(
-            f"knowledge-agent-{self.name}",
-            str(self._last_processed_id),
-        )
+            if self._use_hermes and self._hermes_agent is not None:
+                await self._hermes_cycle(unprocessed)
+            else:
+                await self._native_cycle(unprocessed)
+
+            await self._store.set_checkpoint(
+                f"knowledge-agent-{self.name}",
+                str(self._last_processed_id),
+            )
+
+        if self._cycle_count % 6 == 0:
+            try:
+                await self._run_raptor_cycle()
+            except Exception:
+                logger.exception(f"{self.name}: RAPTOR cycle failed")
 
     async def _hermes_cycle(self, docs: list[StoredDocument]) -> None:
         from mneia.agents.hermes_bridge import run_hermes_cycle
@@ -315,3 +322,29 @@ class KnowledgeAgent(BaseAgent):
                 logger.info(f"{self.name}: generated cross-doc summary")
         except Exception:
             logger.debug(f"{self.name}: cross-doc summary LLM failed")
+
+    async def _run_raptor_cycle(self) -> None:
+        """Build RAPTOR cluster summaries and store them as synthetic documents."""
+        from mneia.pipeline.raptor import build_raptor_tree
+
+        nodes = await build_raptor_tree(self._store, self._llm, source=None)
+        if not nodes:
+            return
+
+        for node in nodes:
+            raw = RawDocument(
+                source="raptor",
+                source_id=f"raptor-{node.cluster_id}",
+                content=node.summary,
+                content_type="cluster-summary",
+                title=f"RAPTOR Cluster {node.cluster_id} ({', '.join(node.topics[:3])})",
+                timestamp=datetime.now(timezone.utc),
+                metadata={
+                    "doc_ids": node.source_doc_ids,
+                    "level": node.level,
+                    "topics": node.topics,
+                },
+            )
+            await self._store.store_document(raw)
+
+        logger.info(f"{self.name}: RAPTOR stored {len(nodes)} cluster summaries")

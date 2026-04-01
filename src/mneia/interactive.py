@@ -991,10 +991,10 @@ class InteractiveSession:
                 source_hints = self._detect_source_hints(question)
 
                 results = await store.search(
-                    question, limit=5, sources=source_hints,
+                    question, limit=200, sources=source_hints,
                 )
                 if not results and source_hints:
-                    results = await store.search(question, limit=5)
+                    results = await store.search(question, limit=200)
 
                 has_context = bool(results)
                 source_set: set[str] = set()
@@ -1108,6 +1108,18 @@ class InteractiveSession:
                         ):
                             result = await engine.ask(question)
 
+                        # Handle clarifying question
+                        if result.needs_clarification:
+                            console.print()
+                            console.print(
+                                f"[yellow]  {result.clarifying_question}[/yellow]"
+                            )
+                            if result.clarifying_options:
+                                for i, opt in enumerate(result.clarifying_options, 1):
+                                    console.print(f"    [cyan]{i}.[/cyan] {opt}")
+                            console.print()
+                            continue
+
                         console.print()
                         md = Markdown(result.answer)
                         console.print(
@@ -1139,7 +1151,19 @@ class InteractiveSession:
                 await engine.close()
                 console.print("[dim]  Back to mneia.[/dim]\n")
 
-        asyncio.run(_chat_loop())
+        import threading
+
+        def _run_in_thread() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(_chat_loop())
+            finally:
+                loop.close()
+
+        t = threading.Thread(target=_run_in_thread, daemon=True)
+        t.start()
+        t.join()
 
     def _cmd_agent_stats(self) -> None:
         from datetime import datetime
@@ -1651,11 +1675,11 @@ class InteractiveSession:
                 source_hints = self._detect_source_hints(user_input)
 
                 search_results = await store.search(
-                    user_input, limit=5, sources=source_hints,
+                    user_input, limit=200, sources=source_hints,
                 )
                 if not search_results and source_hints:
                     search_results = await store.search(
-                        user_input, limit=5,
+                        user_input, limit=200,
                     )
 
                 has_context = bool(search_results)

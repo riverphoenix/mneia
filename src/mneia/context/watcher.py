@@ -11,11 +11,16 @@ logger = logging.getLogger(__name__)
 
 
 class ContextWatcher:
-    def __init__(self, config: MneiaConfig) -> None:
+    def __init__(
+        self,
+        config: MneiaConfig,
+        new_docs_event: asyncio.Event | None = None,
+    ) -> None:
         self._config = config
         self._store = MemoryStore()
         self._last_gen_time: datetime | None = None
         self._running = False
+        self._new_docs_event = new_docs_event or asyncio.Event()
 
     async def run(self) -> None:
         self._running = True
@@ -35,7 +40,14 @@ class ContextWatcher:
                 logger.exception("ContextWatcher cycle failed")
 
             try:
-                await asyncio.sleep(interval)
+                # Wake up on timer OR when WorkerAgent signals new docs
+                self._new_docs_event.clear()
+                await asyncio.wait_for(
+                    self._new_docs_event.wait(),
+                    timeout=interval,
+                )
+            except asyncio.TimeoutError:
+                pass
             except asyncio.CancelledError:
                 break
 

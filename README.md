@@ -12,7 +12,7 @@ Autonomous multi-agent personal knowledge system. mneia connects to your apps (r
 
 ## What it does
 
-- **Connects** to 14 data sources (Calendar, Gmail, Obsidian, Local Folders, Slack, GitHub, and more) — read-only, always
+- **Connects** to 10 data sources (Calendar, Gmail, Obsidian, Local Folders, GitHub, and more) — read-only, always
 - **Learns** by extracting entities, relationships, and patterns via GLiNER NER + LLM structured extraction
 - **Remembers** everything locally in a temporal knowledge graph with vector embeddings — nothing leaves your machine
 - **Thinks** autonomously — identifies gaps, proposes connections, and surfaces insights
@@ -73,6 +73,22 @@ mneia › /sync obsidian
 ```
 
 For all available commands: `mneia --help` or type `/help` in the REPL.
+
+## Smart RAG (v0.3.0)
+
+mneia's conversational search uses a multi-stage intelligent retrieval pipeline:
+
+- **ReAct loop** — LLM routes each question to the most relevant sources, generates sub-queries, and evaluates whether gathered context is sufficient before answering
+- **Source routing** — keyword detection + LLM routing directs queries to the right connectors (calendar for meetings, gmail for email, etc.)
+- **Temporal reasoning** — natural language time expressions ("last week", "Q1 2024", "yesterday") are parsed into timestamp filters applied at the DB level
+- **RAG Fusion (RRF)** — Reciprocal Rank Fusion merges results from multiple independent searches (initial, sub-queries, fallback, vector) for better recall
+- **HyDE** — Hypothetical Document Embeddings: LLM generates a hypothetical answer first, then embeds that for semantic search — bridges vocabulary gap between questions and documents
+- **Sentence-window retrieval** — returns the best-matching sentence window from each document rather than a raw content slice
+- **RAPTOR** — KnowledgeAgent periodically clusters documents with TF-IDF + agglomerative clustering and generates LLM summaries of each cluster, stored as synthetic searchable documents
+- **Co-reference resolution** — pronouns in documents are resolved to canonical names before entity extraction (optional: `pip install fastcoref`)
+- **Cross-encoder reranking** — final results ranked by a cross-encoder (optional: `pip install 'mneia[intelligence]'`)
+
+Context window: 80,000 characters. Search limit: 200 documents per pass.
 
 ## MCP Server
 
@@ -350,7 +366,7 @@ pytest tests/integration/       # CLI integration tests
 pytest -v                       # All tests with verbose output
 ```
 
-564 tests covering all agents, connectors, pipeline stages, and core infrastructure.
+388+ unit tests covering all agents, connectors, pipeline stages, and core infrastructure.
 
 ## License
 

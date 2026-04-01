@@ -106,6 +106,7 @@ class AgentManager:
         graph = KnowledgeGraph()
         vector_store = VectorStore()
         embedding_client = EmbeddingClient(LLMClient(self.config.llm))
+        new_docs_event = asyncio.Event()
 
         if vector_store.available:
             await embedding_client.check_availability()
@@ -163,6 +164,7 @@ class AgentManager:
             graph=graph,
             vector_store=vector_store,
             embedding_client=embedding_client,
+            new_docs_event=new_docs_event,
         )
         self._agents[worker.name] = worker
         self._tasks[worker.name] = asyncio.create_task(
@@ -219,7 +221,7 @@ class AgentManager:
         if self.config.auto_generate_context:
             from mneia.context.watcher import ContextWatcher
 
-            ctx_watcher = ContextWatcher(self.config)
+            ctx_watcher = ContextWatcher(self.config, new_docs_event=new_docs_event)
             self._tasks["context-watcher"] = asyncio.create_task(
                 ctx_watcher.run(),
                 name="context-watcher",

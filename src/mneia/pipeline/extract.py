@@ -38,13 +38,16 @@ async def extract_entities(
     doc: StoredDocument,
     llm: LLMClient,
 ) -> dict[str, Any]:
+    from mneia.pipeline.coref import resolve_coreferences
     from mneia.pipeline.ner import NERExtractor
     from mneia.pipeline.structured import ExtractionResult, extract_structured
 
+    extraction_text = resolve_coreferences(doc.content[:5000])
+
     ner = NERExtractor()
     ner_hints: list[dict[str, Any]] | None = None
-    if ner.available and len(doc.content) >= 50:
-        ner_hints = ner.extract(doc.content[:5000])
+    if ner.available and len(extraction_text) >= 50:
+        ner_hints = ner.extract(extraction_text)
 
     try:
         result: ExtractionResult = await extract_structured(
@@ -63,7 +66,7 @@ async def extract_entities(
     except Exception:
         logger.debug("Structured extraction unavailable, falling back to JSON prompt")
 
-    content = doc.content[:3000]
+    content = extraction_text[:3000]
     prompt = f"""Extract entities and relationships from this {doc.content_type}:
 
 Title: {doc.title}

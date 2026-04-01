@@ -25,6 +25,7 @@ class WorkerAgent(BaseAgent):
         graph: KnowledgeGraph | None = None,
         vector_store: VectorStore | None = None,
         embedding_client: EmbeddingClient | None = None,
+        new_docs_event: asyncio.Event | None = None,
     ) -> None:
         super().__init__(name=name, description="Entity extraction and association worker")
         self._config = config
@@ -33,6 +34,7 @@ class WorkerAgent(BaseAgent):
         self._vector_store = vector_store
         self._embedding_client = embedding_client
         self._stop_event = asyncio.Event()
+        self._new_docs_event = new_docs_event
         self._total_entities = 0
         self._total_relationships = 0
         self._docs_processed = 0
@@ -50,6 +52,8 @@ class WorkerAgent(BaseAgent):
                     processed = await self._process_batch(llm)
                     if processed > 0:
                         logger.info(f"{self.name}: processed {processed} docs")
+                        if self._new_docs_event:
+                            self._new_docs_event.set()
                 except Exception:
                     logger.exception(f"{self.name}: batch processing failed")
 

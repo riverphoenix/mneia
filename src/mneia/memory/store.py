@@ -204,20 +204,32 @@ class MemoryStore:
         limit: int = 10,
         source: str | None = None,
         sources: list[str] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
     ) -> list[StoredDocument]:
         conn = self._get_conn()
         try:
             fts_query = self._sanitize_fts_query(query)
+            time_clauses: list[str] = []
+            time_params: list[str] = []
+            if since is not None:
+                time_clauses.append("d.timestamp >= ?")
+                time_params.append(since.isoformat())
+            if until is not None:
+                time_clauses.append("d.timestamp <= ?")
+                time_params.append(until.isoformat())
+            time_sql = (" AND " + " AND ".join(time_clauses)) if time_clauses else ""
+
             if source:
                 cursor = conn.execute(
-                    """
+                    f"""
                     SELECT d.* FROM documents d
                     JOIN documents_fts fts ON d.id = fts.rowid
-                    WHERE documents_fts MATCH ? AND d.source = ?
+                    WHERE documents_fts MATCH ? AND d.source = ?{time_sql}
                     ORDER BY rank
                     LIMIT ?
                     """,
-                    (fts_query, source, limit),
+                    (fts_query, source, *time_params, limit),
                 )
             elif sources:
                 placeholders = ",".join("?" for _ in sources)
@@ -225,22 +237,22 @@ class MemoryStore:
                     f"""
                     SELECT d.* FROM documents d
                     JOIN documents_fts fts ON d.id = fts.rowid
-                    WHERE documents_fts MATCH ? AND d.source IN ({placeholders})
+                    WHERE documents_fts MATCH ? AND d.source IN ({placeholders}){time_sql}
                     ORDER BY rank
                     LIMIT ?
                     """,
-                    (fts_query, *sources, limit),
+                    (fts_query, *sources, *time_params, limit),
                 )
             else:
                 cursor = conn.execute(
-                    """
+                    f"""
                     SELECT d.* FROM documents d
                     JOIN documents_fts fts ON d.id = fts.rowid
-                    WHERE documents_fts MATCH ?
+                    WHERE documents_fts MATCH ?{time_sql}
                     ORDER BY rank
                     LIMIT ?
                     """,
-                    (fts_query, limit),
+                    (fts_query, *time_params, limit),
                 )
             return [self._row_to_doc(row) for row in cursor.fetchall()]
         finally:

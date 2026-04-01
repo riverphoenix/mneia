@@ -46,6 +46,7 @@ class RawDocument:
 
 class BaseConnector(ABC):
     manifest: ConnectorManifest
+    _skipped_resources: list[str]  # injected by ingest pipeline before fetch_since()
 
     @abstractmethod
     async def authenticate(self, config: dict[str, Any]) -> bool:

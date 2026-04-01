@@ -67,6 +67,7 @@ class ConnectorConfig(BaseModel):
     poll_interval_seconds: int = 300
     settings: dict[str, Any] = Field(default_factory=dict)
     last_checkpoint: str | None = None
+    skipped_resources: list[str] = Field(default_factory=list)
 
 
 class SafetyConfig(BaseModel):

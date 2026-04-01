@@ -38,6 +38,7 @@ class GitHubConnector(BaseConnector):
         self._token: str = ""
         self._repos: list[str] = []
         self._client: httpx.AsyncClient | None = None
+        self._skipped_resources: list[str] = []
 
     async def authenticate(self, config: dict[str, Any]) -> bool:
         self._token = config.get("github_token", "")
@@ -68,6 +69,9 @@ class GitHubConnector(BaseConnector):
             return
 
         for repo in self._repos:
+            if repo in self._skipped_resources:
+                logger.debug(f"Skipping {repo} (previously not found)")
+                continue
             async for doc in self._fetch_issues(repo, since):
                 yield doc
             async for doc in self._fetch_pulls(repo, since):
@@ -232,7 +236,18 @@ class GitHubConnector(BaseConnector):
                 f"{GITHUB_API}/repos/{repo}/issues",
                 params=params,
             )
+            if resp.status_code in (404, 410):
+                logger.warning(
+                    f"GitHub repo not found: {repo} (HTTP {resp.status_code}) — "
+                    "removing from future syncs"
+                )
+                if repo not in self._skipped_resources:
+                    self._skipped_resources.append(repo)
+                return
             resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"GitHub issues fetch failed for {repo}: {e}")
+            return
         except Exception as e:
             logger.error(f"GitHub issues fetch failed for {repo}: {e}")
             return
@@ -262,7 +277,18 @@ class GitHubConnector(BaseConnector):
                 f"{GITHUB_API}/repos/{repo}/pulls",
                 params=params,
             )
+            if resp.status_code in (404, 410):
+                logger.warning(
+                    f"GitHub repo not found: {repo} (HTTP {resp.status_code}) — "
+                    "removing from future syncs"
+                )
+                if repo not in self._skipped_resources:
+                    self._skipped_resources.append(repo)
+                return
             resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"GitHub PRs fetch failed for {repo}: {e}")
+            return
         except Exception as e:
             logger.error(f"GitHub PRs fetch failed for {repo}: {e}")
             return

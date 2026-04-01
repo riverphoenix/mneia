@@ -47,6 +47,10 @@ async def ingest_connector(
     if checkpoint_str:
         since = datetime.fromisoformat(checkpoint_str)
 
+    # Inject the mutable skipped_resources list so connectors can append to it
+    connector._skipped_resources = conn_config.skipped_resources  # type: ignore[attr-defined]
+    skipped_before = len(conn_config.skipped_resources)
+
     ingested = 0
     skipped = 0
     errors: list[str] = []
@@ -85,6 +89,11 @@ async def ingest_connector(
 
     if latest_timestamp and latest_timestamp != checkpoint_str:
         await store.set_checkpoint(name, latest_timestamp)
+
+    if len(conn_config.skipped_resources) > skipped_before:
+        new_items = conn_config.skipped_resources[skipped_before:]
+        logger.info(f"Marking {len(new_items)} resource(s) as not-found for {name}: {new_items}")
+        config.save()
 
     logger.info(f"Ingested {ingested} docs from {name} ({skipped} skipped, {len(errors)} errors)")
     return IngestResult(

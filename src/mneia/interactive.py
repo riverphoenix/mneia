@@ -70,18 +70,100 @@ THINKING_PHRASES = [
     "Looking through your notes...",
     "Reasoning about your question...",
     "Pulling together what I know...",
+    "Rummaging through your digital brain...",
+    "Consulting the oracle (that's your notes)...",
+    "Assembling the puzzle pieces...",
+    "Diving into the knowledge pool...",
+    "On it — give me a sec...",
+    "Firing up the neurons...",
+    "Reading between the lines...",
+    "Spelunking through your data caves...",
+    "Asking your past self...",
+    "Cross-referencing the multiverse of your notes...",
+    "Following the breadcrumbs...",
+    "Thinking really hard (it shows)...",
+    "Interviewing your documents...",
+    "Untangling the knowledge web...",
+]
+
+_THINKING_PHRASES_BY_TOPIC: dict[str, list[str]] = {
+    "meeting": [
+        "Checking who said what...",
+        "Flipping through your meeting history...",
+        "Scanning the conference room transcripts...",
+    ],
+    "calendar": [
+        "Checking the calendar...",
+        "Looking at your schedule...",
+        "Flipping through your diary...",
+    ],
+    "email": [
+        "Digging through your inbox archaeology...",
+        "Retrieving messages from the ether...",
+        "Sorting through the email pile...",
+    ],
+    "github": [
+        "Browsing your commit history...",
+        "Reading the git tea leaves...",
+        "Inspecting your pull requests...",
+    ],
+    "code": [
+        "Parsing the codebase...",
+        "Reading between the semicolons...",
+        "Compiling your thoughts...",
+    ],
+    "week": [
+        "Rewinding the tape...",
+        "Scanning the recent timeline...",
+        "Looking back at your week...",
+    ],
+    "yesterday": [
+        "Yesterday once more...",
+        "Reaching back 24 hours...",
+        "Checking what went down...",
+    ],
+    "today": [
+        "Checking today's story...",
+        "Looking at the here and now...",
+        "Scanning the day so far...",
+    ],
+    "project": [
+        "Loading project context...",
+        "Tracing the project arc...",
+        "Gathering the project thread...",
+    ],
+    "team": [
+        "Assembling the team dossier...",
+        "Checking in with your contacts...",
+        "Gathering the crew intel...",
+    ],
+    "decision": [
+        "Weighing the evidence...",
+        "Consulting the decision log...",
+        "Lining up the pros and cons...",
+    ],
+}
+
+_STEP_VERBS = [
+    "⟳", "⚡", "🔍", "🧠", "💡", "⟳", "↻", "◉", "▸", "✦",
 ]
 
 
-def _get_thinking_phrase() -> str:
+def _get_thinking_phrase(question: str = "") -> str:
     import random
 
+    q_lower = question.lower()
+    for keyword, phrases in _THINKING_PHRASES_BY_TOPIC.items():
+        if keyword in q_lower:
+            return random.choice(phrases)
     return random.choice(THINKING_PHRASES)
 
 
 def _show_step(msg: str) -> None:
     """Print a dim ReAct reasoning step inline."""
-    console.print(f"  [dim]⟳ {msg}[/dim]")
+    import random
+    verb = random.choice(_STEP_VERBS)
+    console.print(f"  [dim]{verb} {msg}[/dim]")
 
 
 _ALL_COMMANDS = sorted(SLASH_COMMANDS.keys())
@@ -1119,6 +1201,10 @@ class InteractiveSession:
                             continue
 
                         console.print()
+                        console.print(Text(
+                            f"  ✦ {_get_thinking_phrase(question)}",
+                            style="dim italic",
+                        ))
                         stream_chunks: list[str] = []
                         stream_buf = Text()
                         try:
@@ -1765,7 +1851,7 @@ class InteractiveSession:
                 )
 
                 console.print(Text(
-                    f"  ✦ {_get_thinking_phrase()}",
+                    f"  ✦ {_get_thinking_phrase(user_input)}",
                     style="dim italic",
                 ))
 

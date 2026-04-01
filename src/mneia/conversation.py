@@ -48,6 +48,11 @@ SOURCE_KEYWORDS: dict[str, list[str]] = {
     "obsidian": [
         "note", "notes", "obsidian", "vault", "wrote", "journal",
         "daily note", "idea", "brain dump",
+        # People and personal life
+        "who is", "tell me about", "family", "child", "children",
+        "daughter", "son", "wife", "husband", "partner", "friend",
+        "colleague", "school", "class", "birthday", "age", "lives",
+        "works at", "knows",
     ],
     "apple-notes": [
         "apple notes", "iphone note", "macos note", "quick note",
@@ -64,6 +69,49 @@ SOURCE_KEYWORDS: dict[str, list[str]] = {
         "file", "files", "folder", "document", "pdf", "download",
         "desktop", "local",
     ],
+}
+
+# Richer descriptions used both in routing prompt and for source selection UI
+SOURCE_DESCRIPTIONS: dict[str, str] = {
+    "google-calendar": (
+        "Google Calendar — meeting events, appointments, standups, 1:1s, "
+        "team syncs, personal events, schedules, invites, and agenda items"
+    ),
+    "gmail": (
+        "Gmail — email threads, received and sent messages, newsletters, "
+        "attachments, and email conversations"
+    ),
+    "google-drive": (
+        "Google Drive — shared Google Docs, Sheets, Slides, and other "
+        "documents created or accessed via Drive"
+    ),
+    "granola": (
+        "Granola meeting notes — AI-generated transcripts with attendees, "
+        "decisions, action items, and verbatim quotes from recorded meetings"
+    ),
+    "obsidian": (
+        "Obsidian personal notes vault — the most important source for "
+        "personal information: notes about family members (children, partner, "
+        "parents), friends, colleagues, school details, birthdays, "
+        "relationship context, project notes, daily journals, ideas, "
+        "and anything the user has written down about their life"
+    ),
+    "apple-notes": (
+        "Apple Notes — quick notes captured on iPhone or Mac, reminders, "
+        "and personal jottings"
+    ),
+    "github": (
+        "GitHub — code repositories, commit history, pull requests, issues, "
+        "code reviews, and software project activity"
+    ),
+    "chrome-history": (
+        "Chrome browsing history — visited websites, URLs, and web searches "
+        "from the browser"
+    ),
+    "local-folders": (
+        "Local files and folders — PDFs, documents, downloads, and files "
+        "stored on the user's computer"
+    ),
 }
 
 
@@ -305,8 +353,24 @@ class ConversationEngine:
         if on_step:
             on_step(f"Retrieved {total_docs} documents → top {len(doc_results)} after ranking")
 
-        # ── 9. Graph context ──────────────────────────────────────────────
+        # ── 9. Graph context + entity-grounded extra search ──────────────
         graph_context = self._get_graph_context(question)
+        entity_names = self._entity_extra_queries(question)
+        if entity_names:
+            if on_step:
+                on_step(f"Cross-referencing entities: {', '.join(entity_names)}")
+            entity_tasks = [
+                self._store.search(name, limit=30)
+                for name in entity_names
+            ]
+            entity_batches = await asyncio.gather(*entity_tasks, return_exceptions=True)
+            for batch in entity_batches:
+                if isinstance(batch, list) and batch:
+                    result_lists.append(batch)
+            # Re-merge and re-rank with entity docs included
+            rrf_merged2 = reciprocal_rank_fusion(result_lists)
+            merged2 = self._merge_and_diversify(rrf_merged2)
+            doc_results = self._rerank(question, merged2, top_k=30)
 
         # ── 10. Build context block ───────────────────────────────────────
         context_block = self._build_context(doc_results, graph_context, question)
@@ -345,7 +409,16 @@ class ConversationEngine:
             "use the current date above to calculate the correct dates.\n"
             "- At the end of your response, suggest 2-3 follow-up questions the user could ask, "
             "prefixed with 'You could also ask:'\n"
-            "- If the user's question is ambiguous, ask a clarifying question instead of guessing."
+            "- If the user's question is ambiguous, ask a clarifying question instead of guessing.\n"
+            "ENTITY ACCURACY (critical):\n"
+            "- When the Knowledge Graph section contains an entity matching a person in the "
+            "question, treat those entity properties as the authoritative ground truth for "
+            "that specific individual.\n"
+            "- Do NOT infer, guess, or substitute details from other documents about different "
+            "people with similar names or roles.\n"
+            "- If multiple entities match, keep them clearly distinct — state the distinguishing "
+            "properties (school, relationship, age, etc.) explicitly.\n"
+            "- Only assert facts that are directly stated in the provided context."
         ]
 
         if self._session_manager:
@@ -425,19 +498,8 @@ class ConversationEngine:
         if not active:
             return None
 
-        source_descriptions = {
-            "google-calendar": "calendar events, meetings, schedules",
-            "gmail": "emails, email threads",
-            "google-drive": "Google Docs, Sheets, Slides",
-            "granola": "meeting transcripts and notes",
-            "obsidian": "personal knowledge notes",
-            "apple-notes": "Apple Notes",
-            "github": "code repositories, commits, pull requests, issues",
-            "chrome-history": "browser history and visited pages",
-            "local-folders": "local files and documents",
-        }
         source_list = "\n".join(
-            f"- {s}: {source_descriptions.get(s, s)}"
+            f"- {s}: {SOURCE_DESCRIPTIONS.get(s, s)}"
             for s in active
         )
 
@@ -456,7 +518,13 @@ class ConversationEngine:
             f'"clarifying_options": []}}\n\n'
             f"Rules:\n"
             f"- primary_sources: 1-3 most relevant sources (empty list = search all)\n"
-            f"- search_queries: 2-4 search terms covering different angles of the question\n"
+            f"- search_queries: 2-4 diverse search terms covering different angles\n"
+            f"- IMPORTANT: questions about specific people, family members, children, "
+            f"relationships, or personal life → always include 'obsidian' in primary_sources\n"
+            f"- IMPORTANT: questions about meetings, what was discussed, who said what "
+            f"→ include both 'granola' and 'google-calendar'\n"
+            f"- For general 'what have I been working on' or 'summarise my week' questions "
+            f"→ use empty primary_sources to search all\n"
             f"- needs_clarification: true only if question is genuinely ambiguous between "
             f"very different intents\n"
             f"- JSON only, no explanation"
@@ -650,34 +718,93 @@ class ConversationEngine:
         if stats["total_nodes"] == 0:
             return ""
 
-        tokens = question.lower().split()
-        matched_nodes: list[dict[str, Any]] = []
+        q_lower = question.lower()
+        # Whole-word tokens only, length > 2, skip common stop words
+        _stop = {"the", "and", "for", "are", "was", "what", "who", "when",
+                 "where", "how", "did", "does", "can", "has", "have", "tell",
+                 "about", "me", "my", "is", "in", "on", "at", "to", "of", "a"}
+        tokens = [
+            t for t in re.findall(r"[a-z']+", q_lower)
+            if len(t) > 2 and t not in _stop
+        ]
 
+        # Score each node: exact name match > whole-word in name > partial
+        scored: list[tuple[float, str, dict[str, Any]]] = []
         for nid, data in self._graph._graph.nodes(data=True):
-            name = data.get("name", "").lower()
-            if any(token in name for token in tokens if len(token) > 2):
-                matched_nodes.append({"id": nid, **data})
+            name = data.get("name", "").lower().strip()
+            if not name:
+                continue
+            score = 0.0
+            for token in tokens:
+                if name == token:
+                    score += 3.0       # exact full-name match
+                elif re.search(r"\b" + re.escape(token) + r"\b", name):
+                    score += 2.0       # whole-word match within name
+                elif token in name and len(token) >= 5:
+                    score += 0.5       # partial, only for longer tokens
+            if score > 0:
+                scored.append((score, nid, data))
 
-        if not matched_nodes:
+        if not scored:
             return ""
 
-        for node in matched_nodes[:5]:
-            node_id = node["id"]
-            name = node.get("name", node_id)
-            etype = node.get("entity_type", "unknown")
-            desc = node.get("properties", {}).get("description", "")
+        # Sort by score descending, keep top 5
+        scored.sort(key=lambda x: -x[0])
+        matched_nodes = [(nid, data) for _, nid, data in scored[:5]]
 
-            parts.append(f"[Entity: {name} ({etype})]")
-            if desc:
-                parts.append(f"  Description: {desc}")
+        parts.append("IMPORTANT: The following entities are known about the specific "
+                     "people/places/things mentioned in the question. Treat these facts "
+                     "as authoritative — do NOT confuse different entities with similar names.")
+        parts.append("")
+
+        for node_id, data in matched_nodes:
+            name = data.get("name", node_id)
+            etype = data.get("entity_type", "unknown")
+            props = data.get("properties", {})
+
+            parts.append(f"[{name} — {etype}]")
+            # Emit all known properties for disambiguation
+            for key, val in props.items():
+                if val and key not in ("id",):
+                    parts.append(f"  {key}: {val}")
 
             neighbors = self._graph.get_neighbors(node_id, depth=1)
             for edge in neighbors.get("edges", [])[:10]:
                 other_id = edge["target"] if edge["source"] == node_id else edge["source"]
-                other_name = other_id.split(":", 1)[-1].replace("-", " ").title()
+                other_data = self._graph._graph.nodes.get(other_id, {})
+                other_name = other_data.get("name") or other_id.split(":", 1)[-1].replace("-", " ").title()
                 parts.append(f"  → {edge['relation']} → {other_name}")
+            parts.append("")
 
         return "\n".join(parts)
+
+    def _entity_extra_queries(self, question: str) -> list[str]:
+        """Return entity names from graph matches as extra search queries."""
+        stats = self._graph.get_stats()
+        if stats["total_nodes"] == 0:
+            return []
+
+        q_lower = question.lower()
+        _stop = {"the", "and", "for", "are", "was", "what", "who", "when",
+                 "where", "how", "did", "does", "can", "has", "have", "tell",
+                 "about", "me", "my", "is", "in", "on", "at", "to", "of", "a"}
+        tokens = [
+            t for t in re.findall(r"[a-z']+", q_lower)
+            if len(t) > 2 and t not in _stop
+        ]
+
+        found: list[str] = []
+        for _nid, data in self._graph._graph.nodes(data=True):
+            name = data.get("name", "").strip()
+            if not name:
+                continue
+            name_lower = name.lower()
+            for token in tokens:
+                if re.search(r"\b" + re.escape(token) + r"\b", name_lower):
+                    if name not in found:
+                        found.append(name)
+                    break
+        return found[:3]
 
     # ------------------------------------------------------------------ #
     # Context building                                                     #

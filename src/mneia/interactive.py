@@ -1205,17 +1205,46 @@ class InteractiveSession:
                             f"  ✦ {_get_thinking_phrase(question)}",
                             style="dim italic",
                         ))
+
+                        # Collect step messages before streaming starts
+                        step_messages: list[str] = []
+                        def _collect_step(msg: str) -> None:
+                            import random as _rnd
+                            step_messages.append(
+                                f"  [dim]{_rnd.choice(_STEP_VERBS)} {msg}[/dim]"
+                            )
+
                         stream_chunks: list[str] = []
+                        stream_gen = engine.ask_stream(
+                            question, on_step=_collect_step,
+                        )
+
+                        # Advance to first chunk — all routing/search steps happen here
+                        first_chunk: str | None = None
+                        try:
+                            first_chunk = await stream_gen.__anext__()
+                        except StopAsyncIteration:
+                            pass
+                        except asyncio.CancelledError:
+                            console.print("[dim]Cancelled.[/dim]")
+                            continue
+
+                        # Print collected steps now (before Live starts)
+                        for step_line in step_messages:
+                            console.print(step_line)
+
+                        # Stream the rest with Live
                         stream_buf = Text()
+                        if first_chunk is not None:
+                            stream_chunks.append(first_chunk)
+                            stream_buf.append(first_chunk)
                         try:
                             with Live(
                                 stream_buf,
                                 console=console,
                                 refresh_per_second=15,
                             ):
-                                async for chunk in engine.ask_stream(
-                                    question, on_step=_show_step,
-                                ):
+                                async for chunk in stream_gen:
                                     stream_chunks.append(chunk)
                                     stream_buf.append(chunk)
                         except asyncio.CancelledError:
@@ -1245,11 +1274,15 @@ class InteractiveSession:
                         )
 
                         if result.citations:
-                            console.print("[dim]  Sources:[/dim]")
-                            for cite in result.citations:
+                            from collections import Counter
+                            src_counts = Counter(c.source for c in result.citations)
+                            summary = ", ".join(
+                                f"{n} from {s}" for s, n in src_counts.most_common()
+                            )
+                            console.print(f"  [dim]Sources: {summary}[/dim]")
+                            for cite in result.citations[:3]:
                                 console.print(
-                                    f"    [dim]- {cite.title} "
-                                    f"({cite.source})[/dim]"
+                                    f"    [dim]↳ {cite.title[:70]}[/dim]"
                                 )
 
                         if result.suggested_followups:
@@ -1823,8 +1856,7 @@ class InteractiveSession:
                     )
                     console.print(
                         f"\n  [green]\u25cf[/green] [dim]Context from:[/dim] "
-                        f"{tags} "
-                        f"[dim]({len(search_results)} docs)[/dim]"
+                        f"{tags}"
                     )
                 else:
                     console.print(
@@ -1886,12 +1918,17 @@ class InteractiveSession:
                     )
 
                 if has_context:
-                    console.print("[dim]Sources:[/dim]")
-                    for doc in search_results:
+                    from collections import Counter
+                    src_counts = Counter(d.source for d in search_results)
+                    summary = ", ".join(
+                        f"{n} from {s}" for s, n in src_counts.most_common()
+                    )
+                    console.print(f"  [dim]Sources: {summary}[/dim]")
+                    for doc in search_results[:3]:
                         tag = self._format_source_tag(doc.source)
                         console.print(
-                            f"  [dim]-[/dim] {tag} "
-                            f"[dim]{doc.title}[/dim]"
+                            f"    [dim]↳[/dim] {tag} "
+                            f"[dim]{doc.title[:70]}[/dim]"
                         )
                 cost = llm.session_cost_summary()
                 if cost:

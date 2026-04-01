@@ -1,13 +1,45 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+logger = logging.getLogger(__name__)
+
 MNEIA_DIR = Path.home() / ".mneia"
+
+# Sentinel stored in config.json when a secret is held in the system keychain
+_KEYCHAIN_SENTINEL = "__keychain__"
+
+# LLM config fields that may be stored in the keychain
+_SECRET_FIELDS = ("anthropic_api_key", "openai_api_key", "google_api_key")
+
+
+def _get_secret(key: str, fallback: str = "") -> str:
+    """Retrieve a secret from the system keychain; returns fallback if unavailable."""
+    try:
+        import keyring  # type: ignore[import-untyped]
+        val = keyring.get_password("mneia", key)
+        if val:
+            return val
+    except Exception:
+        pass
+    return fallback
+
+
+def _set_secret(key: str, value: str) -> bool:
+    """Store a secret in the system keychain. Returns True on success."""
+    try:
+        import keyring  # type: ignore[import-untyped]
+        keyring.set_password("mneia", key, value)
+        return True
+    except Exception as exc:
+        logger.debug("keyring unavailable (%s), storing plaintext", exc)
+        return False
 CONFIG_PATH = MNEIA_DIR / "config.json"
 DATA_DIR = MNEIA_DIR / "data"
 CONTEXT_DIR = MNEIA_DIR / "context"
@@ -75,9 +107,22 @@ class MneiaConfig(BaseModel):
             config = cls.model_validate(data)
         else:
             config = cls()
+        config._resolve_secrets()
         config._apply_env_overrides()
         config._cleanup_dead_connectors()
         return config
+
+    def _resolve_secrets(self) -> None:
+        """Replace __keychain__ sentinels with real values from the system keychain."""
+        for field in _SECRET_FIELDS:
+            val = getattr(self.llm, field, "")
+            if val == _KEYCHAIN_SENTINEL:
+                resolved = _get_secret(field)
+                if resolved:
+                    self.llm.__dict__[field] = resolved
+                else:
+                    # Sentinel present but keychain empty — clear rather than leak sentinel
+                    self.llm.__dict__[field] = ""
 
     def _cleanup_dead_connectors(self) -> None:
         from mneia.connectors import get_connector_manifest

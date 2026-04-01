@@ -4,9 +4,10 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 from mneia.config import MneiaConfig
 from mneia.core.llm import LLMClient
@@ -123,6 +124,7 @@ class ConversationEngine:
         self._embedding_client = embedding_client
         self._session_manager = session_manager
         self._history: list[ConversationTurn] = []
+        self._last_result: ConversationResult | None = None
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
@@ -133,8 +135,32 @@ class ConversationEngine:
         question: str,
         source_filter: str | None = None,
         source_hints: list[str] | None = None,
+        on_step: Callable[[str], None] | None = None,
     ) -> ConversationResult:
-        """Answer a question using the ReAct (Reason + Act) retrieval loop."""
+        """Answer a question using the ReAct loop. Collects full streaming response."""
+        async for _ in self.ask_stream(
+            question,
+            source_filter=source_filter,
+            source_hints=source_hints,
+            on_step=on_step,
+        ):
+            pass
+        assert self._last_result is not None
+        return self._last_result
+
+    async def ask_stream(
+        self,
+        question: str,
+        source_filter: str | None = None,
+        source_hints: list[str] | None = None,
+        on_step: Callable[[str], None] | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """ReAct pipeline that streams the final answer token-by-token.
+
+        Stores the completed ConversationResult in self._last_result after the
+        generator is exhausted.  on_step(msg) is called for each reasoning step
+        before streaming begins.
+        """
 
         # ── 1. Temporal range detection ───────────────────────────────────
         time_range = extract_temporal_range(question)
@@ -182,7 +208,7 @@ class ConversationEngine:
 
         # ── 5. Check if clarification needed ─────────────────────────────
         if routing_result and routing_result.needs_clarification:
-            return ConversationResult(
+            result = ConversationResult(
                 answer=routing_result.clarifying_question or "Could you clarify your question?",
                 citations=[],
                 suggested_followups=routing_result.clarifying_options,
@@ -190,6 +216,17 @@ class ConversationEngine:
                 clarifying_question=routing_result.clarifying_question,
                 clarifying_options=routing_result.clarifying_options,
             )
+            self._last_result = result
+            yield result.answer
+            return
+
+        effective_sources = (
+            routing_result.primary_sources if routing_result else starting_sources
+        )
+        if on_step and effective_sources:
+            on_step(f"Routing query → {', '.join(effective_sources[:3])}")
+        elif on_step:
+            on_step("Searching all sources...")
 
         # ── 6. ReAct gather loop — keep result lists separate for RRF ────
         result_lists: list[list[StoredDocument]] = []
@@ -198,15 +235,14 @@ class ConversationEngine:
 
         seen_ids: set[int] = {d.id for d in initial_docs}
 
-        effective_sources = (
-            routing_result.primary_sources if routing_result else starting_sources
-        )
         extra_queries = (
             routing_result.search_queries[1:] if routing_result else []
         )
 
         # Iteration 0: Search with routing's sub-queries concurrently
         if extra_queries:
+            if on_step:
+                on_step(f"Expanding with {len(extra_queries[:3])} sub-queries...")
             sub_tasks = [
                 self._store.search(
                     q, limit=100, sources=effective_sources or None,
@@ -222,7 +258,6 @@ class ConversationEngine:
                         seen_ids.add(doc.id)
 
         # Iteration 1: Fallback to global search if too few results.
-        # Skip when source_filter is set — the caller explicitly scoped the search.
         all_so_far = {d.id for lst in result_lists for d in lst}
         if len(all_so_far) < 5 and effective_sources and not source_filter:
             global_docs = await self._store.search(
@@ -238,6 +273,8 @@ class ConversationEngine:
         if len(flat_so_far) >= 3:
             eval_result = await self._react_evaluate(question, flat_so_far[:15])
             if eval_result and not eval_result.has_enough:
+                if on_step:
+                    on_step("Fetching additional context...")
                 extra_tasks = [
                     self._store.search(
                         q, limit=100,
@@ -264,6 +301,10 @@ class ConversationEngine:
         merged = self._merge_and_diversify(rrf_merged)
         doc_results = self._rerank(question, merged, top_k=30)
 
+        total_docs = sum(len(lst) for lst in result_lists)
+        if on_step:
+            on_step(f"Retrieved {total_docs} documents → top {len(doc_results)} after ranking")
+
         # ── 9. Graph context ──────────────────────────────────────────────
         graph_context = self._get_graph_context(question)
 
@@ -279,7 +320,6 @@ class ConversationEngine:
             for doc in doc_results
         ]
 
-        # ── 10. Build and send final prompt ───────────────────────────────
         history_block = self._format_history()
 
         now_local = datetime.now()
@@ -323,8 +363,13 @@ class ConversationEngine:
 
         prompt = "\n".join(prompt_parts)
 
-        response = await self._llm.generate(prompt, system=system_prompt)
+        # ── 11. Stream the final answer ───────────────────────────────────
+        response_chunks: list[str] = []
+        async for chunk in self._llm.generate_stream(prompt, system=system_prompt):
+            response_chunks.append(chunk)
+            yield chunk
 
+        response = "".join(response_chunks)
         followups = self._extract_followups(response)
         clean_answer = self._strip_followups(response)
 
@@ -340,7 +385,7 @@ class ConversationEngine:
         if len(self._history) > MAX_HISTORY_TURNS * 2:
             self._history = self._history[-(MAX_HISTORY_TURNS * 2):]
 
-        return ConversationResult(
+        self._last_result = ConversationResult(
             answer=clean_answer,
             citations=citations,
             suggested_followups=followups,

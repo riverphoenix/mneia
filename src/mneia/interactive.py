@@ -13,6 +13,7 @@ from prompt_toolkit.completion import Completer, Completion, WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from rich.console import Console
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
@@ -76,6 +77,11 @@ def _get_thinking_phrase() -> str:
     import random
 
     return random.choice(THINKING_PHRASES)
+
+
+def _show_step(msg: str) -> None:
+    """Print a dim ReAct reasoning step inline."""
+    console.print(f"  [dim]⟳ {msg}[/dim]")
 
 
 _ALL_COMMANDS = sorted(SLASH_COMMANDS.keys())
@@ -1035,19 +1041,22 @@ class InteractiveSession:
                     f"Question: {question}"
                 )
 
-                with console.status(
-                    "[dim italic]Thinking...[/dim italic]",
-                    spinner="dots",
-                ):
-                    response = await llm.generate(
-                        prompt, system=system,
-                    )
-
                 console.print()
+                chunks: list[str] = []
+                buffer = Text()
+                with Live(buffer, console=console, refresh_per_second=15):
+                    async for chunk in llm.generate_stream(prompt, system=system):
+                        chunks.append(chunk)
+                        buffer.append(chunk)
+                response = "".join(chunks)
+
                 border = "green" if has_context else "yellow"
-                md = Markdown(response)
                 console.print(
-                    Panel(md, border_style=border, padding=(1, 2))
+                    Panel(
+                        Markdown(response),
+                        border_style=border,
+                        padding=(1, 2),
+                    )
                 )
                 if has_context:
                     console.print("[dim]Sources:[/dim]")
@@ -1057,7 +1066,12 @@ class InteractiveSession:
                             f"  [dim]-[/dim] {tag} "
                             f"[dim]{doc.title}[/dim]"
                         )
+                cost = llm.session_cost_summary()
+                if cost:
+                    console.print(f"  [dim]{cost}[/dim]")
                 console.print()
+            except asyncio.CancelledError:
+                console.print("\n[dim]Cancelled.[/dim]")
             except Exception as e:
                 console.print(f"[red]Error: {e}[/red]")
             finally:
@@ -1065,6 +1079,8 @@ class InteractiveSession:
 
         try:
             asyncio.run(_run())
+        except KeyboardInterrupt:
+            console.print("\n[dim]Cancelled.[/dim]")
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
 
@@ -1102,11 +1118,27 @@ class InteractiveSession:
                             )
                             continue
 
-                        with console.status(
-                            "[dim italic]Thinking...[/dim italic]",
-                            spinner="dots",
-                        ):
-                            result = await engine.ask(question)
+                        console.print()
+                        stream_chunks: list[str] = []
+                        stream_buf = Text()
+                        try:
+                            with Live(
+                                stream_buf,
+                                console=console,
+                                refresh_per_second=15,
+                            ):
+                                async for chunk in engine.ask_stream(
+                                    question, on_step=_show_step,
+                                ):
+                                    stream_chunks.append(chunk)
+                                    stream_buf.append(chunk)
+                        except asyncio.CancelledError:
+                            console.print("[dim]Cancelled.[/dim]")
+                            continue
+
+                        result = engine._last_result
+                        if result is None:
+                            continue
 
                         # Handle clarifying question
                         if result.needs_clarification:
@@ -1140,6 +1172,10 @@ class InteractiveSession:
                             )
                             for q in result.suggested_followups:
                                 console.print(f"    [cyan]- {q}[/cyan]")
+
+                        cost = engine._llm.session_cost_summary()
+                        if cost:
+                            console.print(f"  [dim]{cost}[/dim]")
                         console.print()
 
                     except KeyboardInterrupt:
@@ -1728,15 +1764,20 @@ class InteractiveSession:
                     f"Question: {user_input}"
                 )
 
-                thinking = Text(
-                    f"  \u2726 {_get_thinking_phrase()}",
+                console.print(Text(
+                    f"  ✦ {_get_thinking_phrase()}",
                     style="dim italic",
-                )
-                console.print(thinking)
+                ))
 
-                response = await llm.generate(
-                    prompt, system=system_prompt,
-                )
+                resp_chunks: list[str] = []
+                resp_buf = Text()
+                with Live(resp_buf, console=console, refresh_per_second=15):
+                    async for chunk in llm.generate_stream(
+                        prompt, system=system_prompt,
+                    ):
+                        resp_chunks.append(chunk)
+                        resp_buf.append(chunk)
+                response = "".join(resp_chunks)
 
                 command_to_run = None
                 clean_lines = []
@@ -1766,6 +1807,9 @@ class InteractiveSession:
                             f"  [dim]-[/dim] {tag} "
                             f"[dim]{doc.title}[/dim]"
                         )
+                cost = llm.session_cost_summary()
+                if cost:
+                    console.print(f"  [dim]{cost}[/dim]")
                 console.print()
 
                 if command_to_run and command_to_run.startswith("/"):

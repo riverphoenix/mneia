@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from mneia.config import MneiaConfig
 from mneia.conversation import ConversationEngine, ConversationResult, Citation
+
+
+def _mock_stream(text: str):
+    """Return an async generator function that yields text as a single chunk."""
+    async def _gen(*args: object, **kwargs: object) -> AsyncGenerator[str, None]:
+        yield text
+    return _gen
 
 
 @pytest.fixture
@@ -72,7 +80,10 @@ async def test_conversation_engine_ask(config, tmp_path):
     engine._graph = MagicMock()
     engine._graph.get_stats = MagicMock(return_value={"total_nodes": 0, "total_edges": 0})
     engine._llm = MagicMock()
-    engine._llm.generate = AsyncMock(return_value="The answer is 42.\n\nYou could also ask:\n- Why 42?")
+    engine._llm.generate = AsyncMock(return_value="{}")
+    engine._llm.generate_stream = _mock_stream(
+        "The answer is 42.\n\nYou could also ask:\n- Why 42?"
+    )
     engine._llm.close = AsyncMock()
 
     result = await engine.ask("What is the answer?")
@@ -89,13 +100,14 @@ async def test_conversation_history(config):
     engine._graph = MagicMock()
     engine._graph.get_stats = MagicMock(return_value={"total_nodes": 0, "total_edges": 0})
     engine._llm = MagicMock()
-    engine._llm.generate = AsyncMock(return_value="Answer one.")
+    engine._llm.generate = AsyncMock(return_value="{}")
+    engine._llm.generate_stream = _mock_stream("Answer one.")
     engine._llm.close = AsyncMock()
 
     await engine.ask("First question")
     assert len(engine._history) == 2
 
-    engine._llm.generate = AsyncMock(return_value="Answer two.")
+    engine._llm.generate_stream = _mock_stream("Answer two.")
     await engine.ask("Second question")
     assert len(engine._history) == 4
 
@@ -116,14 +128,21 @@ async def test_conversation_graph_context(config, tmp_path):
         properties={"description": "Product Manager"},
     ))
 
+    captured_prompt: list[str] = []
+
+    async def _capture_stream(prompt: str, *args: object, **kwargs: object):
+        captured_prompt.append(prompt)
+        yield "Alice is a PM."
+
     engine._llm = MagicMock()
-    engine._llm.generate = AsyncMock(return_value="Alice is a PM.")
+    engine._llm.generate = AsyncMock(return_value="{}")
+    engine._llm.generate_stream = _capture_stream
     engine._llm.close = AsyncMock()
 
     result = await engine.ask("Tell me about Alice")
 
-    call_args = engine._llm.generate.call_args
-    prompt = call_args[0][0]
+    assert captured_prompt, "generate_stream was not called"
+    prompt = captured_prompt[-1]
     assert "Alice" in prompt
     assert "Product Manager" in prompt
 

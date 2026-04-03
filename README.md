@@ -59,17 +59,19 @@ mneia memory search "project deadline"
 
 Running `mneia` with no arguments enters an interactive REPL with:
 
-- **Slash commands** — `/search`, `/ask`, `/graph`, `/sync`, `/agents`, and more
+- **Slash commands** — `/search`, `/ask`, `/graph`, `/sync`, `/improve`, `/visualize`, and more
 - **Natural language routing** — type plain text and mneia detects intent automatically
 - **RAG conversations** — queries your knowledge base with context-aware LLM responses and citations
 - **Session memory** — conversations are summarized and injected as context on next session
+- **Background auto-cycle** — syncs all connectors + extracts entities + regenerates context every 10 minutes automatically
 - **Tab completion** and **command history**
 
 ```
 mneia › /search project alpha
 mneia › who did I meet with at the last planning session?
-mneia › /graph-person Alice
-mneia › /sync obsidian
+mneia › /sync all
+mneia › /improve
+mneia › /visualize
 ```
 
 For all available commands: `mneia --help` or type `/help` in the REPL.
@@ -89,6 +91,47 @@ mneia's conversational search uses a multi-stage intelligent retrieval pipeline:
 - **Cross-encoder reranking** — final results ranked by a cross-encoder (optional: `pip install 'mneia[intelligence]'`)
 
 Context window: 80,000 characters. Search limit: 200 documents per pass.
+
+## Knowledge Improvement (`/improve`)
+
+RLHF-style interactive session that walks through your knowledge graph and lets you validate or correct it:
+
+- Entities are shown most-mentioned first (highest signal first)
+- Per entity: **keep** (validate), **update** description, or **delete**
+- Per relationship: **correct**, **change relation type**, or **remove**
+- All changes apply immediately to the graph (in-memory + SQLite)
+- Corrections saved to `~/.mneia/preferences.json` — future LLM extraction runs honour them
+
+```
+mneia › /improve
+[1/47] Alice (person)  mentions: 12  connections: 8
+  description: Product manager at Acme
+  works_with → Bob, part_of → Acme
+
+  [1] keep  [2] update  [3] delete  [s] skip  [q] quit
+```
+
+## Graph Visualizer (`/visualize`)
+
+Interactive knowledge graph explorer — no extra dependencies, terminal-native:
+
+- **Graph overview** — entity type distribution with ASCII bar chart + most-mentioned
+- **Entity browser** — paginated table by type with connections, mentions, description
+- **Entity explorer** — Rich relationship tree (depth 2) with keyboard navigation into any neighbour
+- **Search** — find entities by name substring, explore results
+
+```
+mneia › /visualize
+  Menu
+  [1] Graph overview
+  [2] Browse entities by type
+  [3] Explore entity
+  [4] Search entities
+```
+
+## Background Auto-cycle
+
+The REPL starts a background daemon thread that automatically runs **sync → extract → context** every 10 minutes. When the background daemon is running it handles the same cycle via its own agents; the thread stays dormant to avoid double-processing.
 
 ## Claude Code Integration
 
@@ -223,6 +266,17 @@ mneia extract [--limit 50]            # Run entity extraction on unprocessed doc
 mneia context generate                # Generate .md context files
 mneia context show                    # List generated context files
 mneia context link <target-dir>       # Symlink context to a project directory
+```
+
+### REPL-only commands
+
+```bash
+# In the interactive REPL (mneia with no args):
+/sync all              # Sync every enabled connector at once
+/sync <name>           # Sync a single connector
+/improve               # Interactive RLHF-style entity/relationship review
+/visualize             # Browse the knowledge graph interactively
+/chat                  # Multi-turn conversation mode
 ```
 
 ### Conversational Query

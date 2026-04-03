@@ -124,6 +124,38 @@ mneia › What meetings do I have this week?
 
 The conversation engine is also used by the `/ask` command and feeds into the LLM command routing (where the LLM can suggest and auto-execute slash commands).
 
+## Background Auto-cycle
+
+The REPL starts a background daemon thread that automatically runs **sync → extract → context** every 10 minutes. This means:
+
+- All enabled connectors are polled for new documents
+- Newly ingested documents are automatically processed by the entity extraction pipeline
+- Context files (`~/.mneia/context/`) are regenerated with fresh knowledge
+
+When the full background daemon is running (`mneia start`), it handles the same cycle via its own agents; the background thread deactivates to avoid double-processing.
+
+## Knowledge Improvement (`/improve`)
+
+After building up a knowledge graph, use `/improve` to walk through it interactively and validate or correct the extracted information:
+
+```
+mneia › /improve
+```
+
+This runs an RLHF-style session that surfaces the most important entities first (by mention count and connections). For each entity you can keep, update the description, or delete it. For each relationship you can validate, change the relation type, or remove it.
+
+All changes persist immediately and are saved to `~/.mneia/preferences.json` so future extractions honour them.
+
+## Graph Visualizer (`/visualize`)
+
+Browse and explore the knowledge graph without leaving the terminal:
+
+```
+mneia › /visualize
+```
+
+Provides four views: graph overview (type distribution + trending entities), entity browser by type, relationship tree explorer (depth 2, keyboard navigable), and entity name search.
+
 ## MCP Integration
 
 The conversational interface is also available as an MCP tool (`mneia_ask`), allowing AI tools like Claude Code to query your knowledge directly. See [MCP Integration](mcp-integration.md).

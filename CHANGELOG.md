@@ -2,6 +2,14 @@
 
 All notable changes to mneia are documented here.
 
+## [0.3.5] — 2026-04-03
+
+### Changed
+- README updated with `/improve`, `/visualize`, `/sync all`, and background auto-cycle sections
+- `docs/conversational-interface.md` updated with background cycle, `/improve`, and `/visualize` documentation
+
+---
+
 ## [0.3.4] — 2026-04-03
 
 ### Added

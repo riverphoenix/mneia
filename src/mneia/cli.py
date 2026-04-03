@@ -932,6 +932,149 @@ def context_generate() -> None:
         asyncio.run(llm.close())
 
 
+@context_app.command("generate-claude")
+def context_generate_claude(
+    output: str = typer.Option(
+        "", "--output", "-o",
+        help="Output path (default: ~/.mneia/claude-context.md)",
+    ),
+) -> None:
+    """Write a Claude Code context file summarising your knowledge base.
+
+    The file is read by the mneia Claude Code skill automatically, giving
+    Claude personalised context about your people, projects, and recent activity.
+    """
+    from mneia.memory.graph import KnowledgeGraph
+    from mneia.memory.store import MemoryStore
+
+    out_path = Path(output) if output else Path.home() / ".mneia" / "claude-context.md"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    config = MneiaConfig.load()
+    store = MemoryStore()
+    graph = KnowledgeGraph()
+
+    console.print("[cyan]Building Claude Code context...[/cyan]")
+
+    try:
+        lines: list[str] = []
+        lines.append("# mneia — Personal Knowledge Context")
+        lines.append(f"*Generated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')}*\n")
+
+        # Doc counts per source
+        stats = asyncio.run(store.get_stats()) if hasattr(store, "get_stats") else {}
+        by_source: dict[str, int] = stats.get("by_source", {}) if isinstance(stats, dict) else {}
+        if by_source:
+            lines.append("## Knowledge Base")
+            lines.append(f"- **Total**: {stats.get('total_documents', 0):,} documents")
+            for src, count in sorted(by_source.items(), key=lambda x: -x[1]):
+                lines.append(f"  - {src}: {count:,}")
+            lines.append("")
+
+        # Graph summary
+        graph_stats = graph.get_stats()
+        if graph_stats.get("total_nodes", 0) > 0:
+            lines.append("## Knowledge Graph")
+            lines.append(
+                f"- **{graph_stats['total_nodes']} entities**, "
+                f"**{graph_stats['total_edges']} relationships**"
+            )
+            # List entity types
+            type_counts: dict[str, int] = {}
+            for _nid, data in graph._graph.nodes(data=True):
+                etype = data.get("entity_type", "unknown")
+                type_counts[etype] = type_counts.get(etype, 0) + 1
+            for etype, cnt in sorted(type_counts.items(), key=lambda x: -x[1])[:8]:
+                lines.append(f"  - {etype}: {cnt}")
+            lines.append("")
+
+            # Notable people entities with their properties — filter noise
+            import re as _re
+            def _is_real_person(name: str) -> bool:
+                if not name or len(name) < 4 or len(name) > 60:
+                    return False
+                # Skip if starts with a digit
+                if name[0].isdigit():
+                    return False
+                # Skip if mostly digits (phone numbers, IDs)
+                if _re.search(r"\d{5,}", name):
+                    return False
+                # Skip if all-caps word (acronyms like "API", "PM", "AI")
+                words = name.split()
+                if all(w.isupper() or w.isdigit() for w in words):
+                    return False
+                # Skip generic role/job-title words — these are not people's names
+                _role_words = {
+                    "engineer", "strategist", "specialist", "analyst",
+                    "manager", "leader", "professional", "member",
+                    "user", "agent", "team", "group", "researcher",
+                    "director", "architect", "advisor", "creator",
+                    "buyer", "auditor", "operator", "producer",
+                    "coach", "developer", "designer", "tester",
+                    "writer", "reporter", "editor", "assistant",
+                    "shepherd", "guardian", "commander", "officer",
+                    "inspector", "integrator", "maintainer", "tracker",
+                    "generator", "injector", "synthesizer", "responder",
+                    "reporter", "collector", "distributor",
+                }
+                name_words_lower = {w.lower().rstrip("s") for w in name.split()}
+                if name_words_lower & _role_words:
+                    # Only keep if it looks exactly like First Lastname (two proper-case words)
+                    if not _re.fullmatch(r"[A-Z][a-z]+(?:['\- ][A-Z][a-z]+)+", name):
+                        return False
+                # Must contain at least one word with mixed case (real name)
+                if not _re.search(r"[A-Z][a-z]", name):
+                    return False
+                return True
+
+            people_nodes = [
+                (nid, data) for nid, data in graph._graph.nodes(data=True)
+                if data.get("entity_type", "").lower() in ("person", "people")
+                and _is_real_person(data.get("name", ""))
+            ]
+            if people_nodes:
+                lines.append("## People in Your Knowledge Base")
+                for nid, data in sorted(people_nodes, key=lambda x: x[1].get("name", ""))[:40]:
+                    name = data.get("name", nid)
+                    props = data.get("properties", {})
+                    desc = props.get("description", "")
+                    detail_parts = [f"**{name}**"]
+                    if desc and len(desc) < 120:
+                        detail_parts.append(desc)
+                    for key in ("school", "role", "company", "relationship", "age"):
+                        if props.get(key):
+                            detail_parts.append(f"{key}: {props[key]}")
+                    lines.append(f"- {' — '.join(detail_parts)}")
+                lines.append("")
+
+        # Recent docs (last 10)
+        recent = asyncio.run(store.search("recent activity notes", limit=10))
+        if recent:
+            lines.append("## Recently Indexed")
+            for doc in recent[:10]:
+                ts = (
+                    doc.timestamp.strftime("%Y-%m-%d")
+                    if hasattr(doc.timestamp, "strftime") else str(doc.timestamp)[:10]
+                )
+                lines.append(f"- [{doc.source}] **{doc.title}** ({ts})")
+            lines.append("")
+
+        lines.append(
+            "*This file is auto-generated by mneia. "
+            "Run `mneia context generate-claude` to refresh.*"
+        )
+
+        out_path.write_text("\n".join(lines), encoding="utf-8")
+        console.print(f"[green]✓ Written to {out_path}[/green]")
+        console.print(
+            f"[dim]Claude Code will load this automatically via the mneia skill.[/dim]"
+        )
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
 @context_app.command("show")
 def context_show() -> None:
     """List generated context files."""
@@ -1639,6 +1782,72 @@ def logs(
             except KeyboardInterrupt:
                 console.print("\n[dim]Stopped.[/dim]")
 
+
+
+@app.command("install-skill")
+def install_skill(
+    no_context: bool = typer.Option(False, "--no-context", help="Skip context generation"),
+) -> None:
+    """Install the mneia Claude Code skill into ~/.agents/skills/mneia/.
+
+    After installation the skill is available in Claude Code and Claude can
+    query your knowledge base directly. Also generates a personal context file
+    at ~/.mneia/claude-context.md and adds a reference to ~/.claude/CLAUDE.md.
+    """
+    import shutil
+
+    skill_src = Path(__file__).parent.parent.parent.parent / "skills" / "claude-code" / "mneia"
+    # Fallback: try installed package data path
+    if not skill_src.exists():
+        import importlib.resources as pkg
+        try:
+            skill_src = Path(str(pkg.files("mneia"))) / ".." / ".." / "skills" / "claude-code" / "mneia"
+        except Exception:
+            pass
+
+    if not skill_src.exists() or not (skill_src / "SKILL.md").exists():
+        console.print("[red]Skill source not found. Try running from the mneia repo.[/red]")
+        raise typer.Exit(1)
+
+    skill_dst = Path.home() / ".agents" / "skills" / "mneia"
+    skill_dst.parent.mkdir(parents=True, exist_ok=True)
+
+    if skill_dst.exists():
+        shutil.rmtree(skill_dst)
+    shutil.copytree(skill_src, skill_dst)
+    console.print(f"[green]✓ Skill installed → {skill_dst}[/green]")
+
+    # Generate context
+    if not no_context:
+        console.print("[cyan]Generating Claude Code context...[/cyan]")
+        try:
+            ctx = typer.get_current_context()
+            ctx.invoke(context_generate_claude)
+        except Exception as e:
+            console.print(f"[yellow]Context generation skipped: {e}[/yellow]")
+
+    # Pointer in CLAUDE.md
+    global_claude = Path.home() / ".claude" / "CLAUDE.md"
+    context_file = Path.home() / ".mneia" / "claude-context.md"
+    pointer = f"@{context_file}"
+
+    if global_claude.exists():
+        existing = global_claude.read_text(encoding="utf-8")
+        if str(context_file) not in existing:
+            with global_claude.open("a", encoding="utf-8") as f:
+                f.write(f"\n\n# mneia personal context\n{pointer}\n")
+            console.print("[green]✓ Added mneia context pointer to ~/.claude/CLAUDE.md[/green]")
+        else:
+            console.print("[dim]CLAUDE.md already references mneia context[/dim]")
+    else:
+        global_claude.parent.mkdir(parents=True, exist_ok=True)
+        global_claude.write_text(f"# mneia personal context\n{pointer}\n", encoding="utf-8")
+        console.print("[green]✓ Created ~/.claude/CLAUDE.md with mneia context pointer[/green]")
+
+    console.print()
+    console.print("[bold green]mneia skill ready in Claude Code![/bold green]")
+    console.print('[dim]Try: "ask mneia what I worked on last week"[/dim]')
+    console.print('[dim]Refresh context after syncing: mneia context generate-claude[/dim]')
 
 
 @app.command()

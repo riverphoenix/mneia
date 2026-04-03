@@ -84,6 +84,10 @@ Run interactive setup for a connector (e.g., setting vault path for Obsidian).
 
 Trigger an immediate sync for a connector, ingesting new documents since the last checkpoint.
 
+### `mneia sync` (REPL only)
+
+In the interactive REPL, `/sync <name>` syncs a single connector and `/sync all` (or `/sync` with no argument) syncs all enabled connectors sequentially, printing per-connector results.
+
 ### `mneia connector start-agent <name>`
 
 Start a connector's listener agent while the daemon is running. Requires the daemon to be active.
@@ -196,6 +200,45 @@ Print a specific context file.
 ### `mneia context link <target-dir>`
 
 Create symlinks from generated context files into a project directory.
+
+---
+
+## Knowledge Improvement
+
+### `mneia improve` / `/improve`
+
+Interactive RLHF-style session for reviewing and correcting entities and relationships in the knowledge graph.
+
+Walks through all entities (most-mentioned first), asking you to:
+- **Keep** (validate as correct)
+- **Update** the entity description (free text)
+- **Delete** the entity
+- **Skip** and move on
+- **Quit** at any time
+
+After each entity you also review its top relationships and can mark them as correct, correct the relation type, or remove them.
+
+All changes apply immediately to the graph (in-memory + SQLite) and are saved to `~/.mneia/preferences.json` for future LLM extraction runs.
+
+```
+mneia › /improve
+```
+
+### `mneia visualize` / `/visualize`
+
+Interactive knowledge graph explorer. Navigation is fully keyboard-driven.
+
+**Menu options:**
+- **Graph overview** — entity counts by type with an ASCII bar chart + most-mentioned entities
+- **Browse entities by type** — paginated table with name, connections, mention count, description; pick any row to explore
+- **Explore entity** — full Rich tree of relationships (depth 2) with clickable navigation to neighbours
+- **Search entities** — substring search by name, then explore a match
+
+```
+mneia › /visualize
+```
+
+Navigation stack: drill into any connected entity and navigate back step-by-step.
 
 ---
 

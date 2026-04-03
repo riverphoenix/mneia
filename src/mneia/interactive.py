@@ -43,7 +43,9 @@ SLASH_COMMANDS: dict[str, dict[str, str]] = {
     "/recent": {"desc": "Show recently ingested documents", "alias": ""},
     "/connectors": {"desc": "List connectors and their status", "alias": ""},
     "/connector-setup": {"desc": "Interactive connector setup — /connector-setup <name>", "alias": ""},
-    "/sync": {"desc": "Sync a connector — /sync <name>", "alias": ""},
+    "/sync": {"desc": "Sync connector(s) — /sync <name> or /sync all", "alias": ""},
+    "/improve": {"desc": "Interactive knowledge improvement (RLHF-style entity/relation review)", "alias": ""},
+    "/visualize": {"desc": "Explore the knowledge graph interactively", "alias": ""},
     "/connector-start": {"desc": "Start a connector agent — /connector-start <name>", "alias": ""},
     "/connector-stop": {"desc": "Stop a connector agent — /connector-stop <name>", "alias": ""},
     "/agents": {"desc": "List running agents", "alias": ""},
@@ -199,6 +201,7 @@ class InteractiveSession:
         self._check_ollama_status()
         self._show_quick_status()
         self._auto_start_daemon()
+        self._start_background_cycle()
 
         session: PromptSession[str] = PromptSession(
             history=FileHistory(str(self._history_file)),
@@ -402,10 +405,16 @@ class InteractiveSession:
                 self._cmd_connector_setup(args)
 
         elif cmd == "/sync":
-            if not args:
-                console.print("[yellow]Usage: /sync <connector_name>[/yellow]")
+            if not args or args.lower() == "all":
+                self._cmd_sync_all()
             else:
                 self._cmd_sync(args)
+
+        elif cmd == "/improve":
+            self._cmd_improve()
+
+        elif cmd == "/visualize":
+            self._cmd_visualize()
 
         elif cmd == "/connector-start":
             if not args:
@@ -643,6 +652,172 @@ class InteractiveSession:
         if conn_config.last_checkpoint != result.checkpoint:
             conn_config.last_checkpoint = result.checkpoint
             self.config.save()
+
+    def _cmd_sync_all(self) -> None:
+        """Sync all enabled connectors sequentially."""
+        enabled = [(n, c) for n, c in self.config.connectors.items() if c.enabled]
+        if not enabled:
+            console.print("[yellow]No connectors enabled. Run /connector-setup first.[/yellow]")
+            return
+
+        from mneia.connectors import create_connector
+        from mneia.pipeline.ingest import ingest_connector
+
+        total_ingested = 0
+        total_errors = 0
+
+        console.print(f"  [dim]Syncing {len(enabled)} connector(s)...[/dim]\n")
+        for name, conn_config in enabled:
+            connector = create_connector(name)
+            if not connector:
+                continue
+            with console.status(f"  [cyan]Syncing {name}...[/cyan]"):
+                try:
+                    result = asyncio.run(
+                        ingest_connector(connector, conn_config, self.config)
+                    )
+                    total_ingested += result.documents_ingested
+                    icon = "[green]✓[/green]" if not result.errors else "[yellow]⚠[/yellow]"
+                    console.print(
+                        f"  {icon} [cyan]{name}[/cyan] — "
+                        f"{result.documents_ingested} new"
+                        + (f", {len(result.errors)} errors" if result.errors else "")
+                    )
+                    if conn_config.last_checkpoint != result.checkpoint:
+                        conn_config.last_checkpoint = result.checkpoint
+                        self.config.save()
+                except Exception as e:
+                    console.print(f"  [red]✗ {name}[/red] — {e}")
+                    total_errors += 1
+
+        console.print(
+            f"\n  [bold]Done.[/bold] {total_ingested} total new documents"
+            + (f", {total_errors} connector errors" if total_errors else "")
+        )
+
+    def _cmd_improve(self) -> None:
+        """Run an interactive RLHF-style knowledge improvement session."""
+        from mneia.commands.improve import run_improve_session
+        from mneia.memory.graph import KnowledgeGraph
+
+        graph = KnowledgeGraph()
+        if graph.get_stats()["total_nodes"] == 0:
+            console.print(
+                "[yellow]Knowledge graph is empty. "
+                "Run [cyan]/extract[/cyan] first to populate it.[/yellow]"
+            )
+            return
+        run_improve_session(graph)
+
+    def _cmd_visualize(self) -> None:
+        """Run an interactive knowledge graph visualization session."""
+        from mneia.commands.visualize import run_visualize_session
+        from mneia.memory.graph import KnowledgeGraph
+
+        graph = KnowledgeGraph()
+        if graph.get_stats()["total_nodes"] == 0:
+            console.print(
+                "[yellow]Knowledge graph is empty. "
+                "Run [cyan]/extract[/cyan] first to populate it.[/yellow]"
+            )
+            return
+        run_visualize_session(graph)
+
+    # ── background 10-minute auto-cycle ──────────────────────────────────────
+
+    def _start_background_cycle(self) -> None:
+        """Start a daemon thread that runs sync→extract→context every 10 min.
+
+        Only activates when the background daemon is NOT running so we don't
+        double-process.  The daemon (when running) handles the same cycle via
+        its own agents.
+        """
+        import threading
+
+        def _bg() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._bg_cycle_loop())
+            finally:
+                loop.close()
+
+        t = threading.Thread(target=_bg, daemon=True, name="mneia-bg-cycle")
+        t.start()
+
+    async def _bg_cycle_loop(self) -> None:
+        """Async loop: wait 10 min then run the full cycle, forever."""
+        await asyncio.sleep(600)
+        while True:
+            try:
+                from mneia.config import SOCKET_PATH
+                if not SOCKET_PATH.exists():
+                    await self._run_bg_cycle()
+            except Exception:
+                logger.debug("Background cycle error", exc_info=True)
+            await asyncio.sleep(600)
+
+    async def _run_bg_cycle(self) -> None:
+        """Sync all enabled connectors, then extract, then regenerate context."""
+        from mneia.connectors import create_connector
+        from mneia.pipeline.ingest import ingest_connector
+
+        enabled = [(n, c) for n, c in self.config.connectors.items() if c.enabled]
+        if not enabled:
+            return
+
+        total_ingested = 0
+        for name, conn_config in enabled:
+            try:
+                connector = create_connector(name)
+                if not connector:
+                    continue
+                result = await ingest_connector(connector, conn_config, self.config)
+                total_ingested += result.documents_ingested
+                if result.checkpoint and result.checkpoint != conn_config.last_checkpoint:
+                    conn_config.last_checkpoint = result.checkpoint
+                    self.config.save()
+            except Exception:
+                logger.debug(f"Background sync failed for {name}", exc_info=True)
+
+        # Run extract + context only when there's something new and LLM is available
+        if total_ingested == 0 or not self._ollama_available:
+            return
+
+        try:
+            from mneia.core.llm import LLMClient
+            from mneia.memory.graph import KnowledgeGraph
+            from mneia.memory.store import MemoryStore
+            from mneia.pipeline.extract import extract_and_store
+
+            store = MemoryStore()
+            docs = await store.get_unprocessed(limit=100)
+            if docs:
+                llm = LLMClient(self.config.llm)
+                graph = KnowledgeGraph()
+                try:
+                    for doc in docs:
+                        await extract_and_store(doc, llm, store, graph)
+                finally:
+                    await llm.close()
+        except Exception:
+            logger.debug("Background extract failed", exc_info=True)
+
+        try:
+            from mneia.core.llm import LLMClient
+            from mneia.memory.graph import KnowledgeGraph
+            from mneia.memory.store import MemoryStore
+            from mneia.pipeline.generate import generate_context_files
+
+            store2 = MemoryStore()
+            graph2 = KnowledgeGraph()
+            llm2 = LLMClient(self.config.llm)
+            try:
+                await generate_context_files(self.config, store2, graph2, llm2)
+            finally:
+                await llm2.close()
+        except Exception:
+            logger.debug("Background context generation failed", exc_info=True)
 
     def _cmd_config(self) -> None:
         console.print(f"  [dim]Provider:[/dim] [cyan]{self.config.llm.provider}[/cyan]")
@@ -1753,8 +1928,14 @@ class InteractiveSession:
             return "connectors", ""
         if any(w in lower for w in ["show status", "daemon status", "is it running", "are agents running"]):
             return "status", ""
+        if any(w in lower for w in ["sync all", "sync everything", "sync all connectors"]):
+            return "sync", "all"
         if lower.startswith("sync "):
             return "sync", lower.split(None, 1)[1] if " " in lower else ""
+        if any(w in lower for w in ["improve knowledge", "review entities", "validate knowledge", "rlhf"]):
+            return "improve", ""
+        if any(w in lower for w in ["visualize", "visualise", "explore graph", "show graph visually"]):
+            return "visualize", ""
         if any(w in lower for w in ["show config", "current config", "show settings"]):
             return "config", ""
         if any(w in lower for w in ["show graph", "knowledge graph", "graph stats", "graph summary"]):

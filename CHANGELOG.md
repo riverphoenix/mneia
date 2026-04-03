@@ -2,6 +2,45 @@
 
 All notable changes to mneia are documented here.
 
+## [0.3.4] — 2026-04-03
+
+### Added
+
+**`/sync all`**
+- `/sync all` (or `/sync` with no argument) syncs all enabled connectors sequentially with per-connector status output
+- Natural language intent detection: "sync all", "sync everything", "sync all connectors" triggers `/sync all`
+
+**`/improve` — interactive knowledge improvement (RLHF-style)**
+- New `src/mneia/commands/improve.py` module
+- Walks through all entities ordered by importance (mention_count + connections)
+- Per-entity actions: keep (validate), update description (free text), delete
+- Per-relationship actions: mark correct, change relation type, remove
+- Changes applied immediately to both the in-memory NetworkX graph and SQLite
+- Corrections saved to `~/.mneia/preferences.json` for future LLM extraction runs
+- Session ends with summary (entities reviewed, changes applied)
+- No new dependencies — uses `rich` (already required) + `input()`
+
+**`/visualize` — interactive knowledge graph explorer**
+- New `src/mneia/commands/visualize.py` module
+- Menu-driven navigation: graph overview, entity browser by type, entity explorer, search
+- Entity browser shows paginated table with type, connections, mentions, description
+- Entity explorer shows a full Rich tree of relationships up to depth 2 with navigation
+- Graph overview shows entity type distribution with ASCII bar chart + top mentioned entities
+- Search by entity name substring, pick result to explore
+- Navigation stack: drill into any connected entity and backtrack
+- No new dependencies — uses `rich.tree.Tree`, `rich.table.Table`, `rich.panel.Panel`
+
+**Background auto-cycle (every 10 minutes)**
+- REPL starts a daemon background thread on startup via `_start_background_cycle()`
+- Every 10 minutes (after first 10-min delay): syncs all enabled connectors, then runs entity extraction on new documents, then regenerates context files
+- Only activates when the background daemon is NOT running (daemon handles the same cycle via its own agents when running)
+- Silent: errors are debug-logged, never printed to the REPL prompt
+
+### Updated docs
+- `docs/cli-reference.md`: `/sync all`, `/improve`, `/visualize` command references
+
+---
+
 ## [0.3.3] — 2026-04-03
 
 ### Added

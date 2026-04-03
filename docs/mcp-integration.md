@@ -1,6 +1,39 @@
-# MCP Server Integration
+# Claude Code & MCP Integration
 
-mneia exposes a Model Context Protocol (MCP) server that allows AI tools to query your personal knowledge base directly.
+mneia integrates with Claude Code in two ways:
+
+1. **Claude Code skill** — Claude runs `mneia` CLI commands on your behalf, reads your context file, and answers questions about your knowledge base directly from the chat interface.
+2. **MCP server** — Claude Code (or any MCP-compatible tool) connects to mneia as a tool provider and can call search, ask, sync, and graph functions programmatically.
+
+---
+
+## Claude Code Skill (recommended)
+
+The easiest way to integrate mneia with Claude Code:
+
+```bash
+pip install mneia && mneia config setup && mneia sync
+mneia install-skill
+```
+
+Or install from the Claude Code plugin marketplace:
+
+```
+/plugin marketplace add riverphoenix/mneia
+/plugin install mneia-plugin@mneia
+```
+
+Once installed, Claude Code will automatically load your `~/.mneia/claude-context.md` and can run any mneia command on your behalf. Refresh context after each sync:
+
+```bash
+mneia context generate-claude
+```
+
+---
+
+## MCP Server
+
+mneia also exposes a Model Context Protocol (MCP) server that allows AI tools to query your personal knowledge base directly via tool calls.
 
 ## Setup
 

@@ -2,6 +2,40 @@
 
 All notable changes to mneia are documented here.
 
+## [0.3.2] — 2026-04-03
+
+### Added
+
+**Claude Code skill**
+- `mneia install-skill` — copies skill to `~/.agents/skills/mneia/`, generates `~/.mneia/claude-context.md`, and adds context pointer to `~/.claude/CLAUDE.md`
+- `mneia context generate-claude` — writes personalized `~/.mneia/claude-context.md` with per-source document counts, entity types, people from knowledge graph, and recent activity
+- `scripts/install-claude-code-skill.sh` — standalone install script (no Python required)
+- Claude Code plugin marketplace support: `skills/claude-code/mneia/` skill with SKILL.md and reference docs; `plugins/mneia-plugin/` for `/plugin marketplace add riverphoenix/mneia`
+- `.claude-plugin/marketplace.json` and `plugins/mneia-plugin/.claude-plugin/plugin.json` marketplace manifests
+
+**Smarter RAG**
+- `SOURCE_DESCRIPTIONS` — rich natural-language descriptions for each source used in LLM routing prompt; routing now correctly targets obsidian for people/personal queries, granola + calendar for meetings
+- Whole-word regex entity matching in `_get_graph_context` with scoring (exact > whole-word > partial > substring); stops confusing partial name matches
+- Entity-grounded extra searches: matched entity names used as additional BM25 queries, re-merged via RRF
+- ENTITY ACCURACY system prompt section instructs LLM to treat graph entity properties as authoritative ground truth
+- People/family keyword expansion in obsidian routing (`who is`, `child`, `daughter`, `son`, `school`, etc.)
+
+**UX**
+- Drain-first-chunk pattern: routing/search step indicators now print before Rich `Live` streaming starts — no more invisible progress messages
+- Sources display grouped and summarised (`3 from obsidian, 2 from granola`) with max 3 representative titles instead of listing all 100+ citations
+- `THINKING_PHRASES` expanded to 20 entries; topic-aware phrases for meetings, calendar, email, GitHub, code, etc.
+- Step indicators use rotating emoji (`⟳ ⚡ 🔍 🧠 💡 ↻ ◉ ▸ ✦`)
+- `_get_thinking_phrase(question)` selects topic-matched phrase first
+
+**Reliability**
+- `ConnectorConfig.skipped_resources: list[str]` — persisted list of 404/410 resources; injected into connectors before each sync so deleted repos/resources are permanently skipped without error
+- GitHub connector: `_fetch_issues` / `_fetch_pulls` detect 404/410, log warning, append repo to `_skipped_resources`; `skipped_resources` saved back to config after each sync run
+
+### Fixed
+- Integration test `test_memory_search_no_results` no longer asserts literal "No results" string against a live store
+
+---
+
 ## [0.3.0] — 2026-04-01
 
 ### Added

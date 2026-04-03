@@ -179,13 +179,42 @@ Generated files: `CLAUDE.md`, `people.md`, `projects.md`, `decisions.md`, `belie
 
 Context files are also auto-regenerated when the daemon detects enough new documents (configurable via `context_min_changes_for_regen`).
 
-### `mneia context show`
+### `mneia context generate-claude`
+
+Write a personalized context file at `~/.mneia/claude-context.md` for use with Claude Code. The file includes document and entity counts per source, people from your knowledge graph, and recent activity. The mneia Claude Code skill reads this file automatically.
+
+Run after each sync to keep Claude's view of your knowledge base current.
+
+### `mneia context list`
 
 List generated context files with sizes and modification dates.
+
+### `mneia context show <file>`
+
+Print a specific context file.
 
 ### `mneia context link <target-dir>`
 
 Create symlinks from generated context files into a project directory.
+
+---
+
+## Claude Code Skill
+
+### `mneia install-skill`
+
+Install the mneia Claude Code skill and generate the initial Claude context:
+
+1. Copies `skills/claude-code/mneia/` to `~/.agents/skills/mneia/`
+2. Runs `mneia context generate-claude` to write `~/.mneia/claude-context.md`
+3. Adds an `@~/.mneia/claude-context.md` pointer to `~/.claude/CLAUDE.md` (with confirmation prompt)
+
+After installation, Claude Code can answer questions about your knowledge base, run syncs, and set up new connectors on your behalf. Alternatively, install via the Claude Code plugin marketplace:
+
+```
+/plugin marketplace add riverphoenix/mneia
+/plugin install mneia-plugin@mneia
+```
 
 ---
 

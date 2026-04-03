@@ -90,6 +90,59 @@ mneia's conversational search uses a multi-stage intelligent retrieval pipeline:
 
 Context window: 80,000 characters. Search limit: 200 documents per pass.
 
+## Claude Code Integration
+
+mneia integrates with Claude Code in three ways — pick whichever fits your workflow.
+
+### Option 1 — Install skill after pip install (recommended)
+
+```bash
+pip install mneia
+mneia config setup
+mneia sync
+mneia install-skill          # copies skill + generates context + updates CLAUDE.md
+```
+
+From that point, Claude Code understands mneia commands and your personal context is loaded
+automatically into every conversation.
+
+### Option 2 — Install skill via script (same as option 1, without Python)
+
+```bash
+bash scripts/install-claude-code-skill.sh
+```
+
+### Option 3 — Claude Code plugin marketplace
+
+```
+/plugin marketplace add riverphoenix/mneia
+/plugin install mneia-plugin@mneia
+```
+
+Then install mneia itself and run a first sync:
+
+```bash
+pip install mneia && mneia config setup && mneia sync
+mneia context generate-claude    # write ~/.mneia/claude-context.md
+```
+
+---
+
+Once installed, try these in Claude Code:
+
+```
+ask mneia what I worked on last week
+run mneia status
+set up mneia for me
+sync my notes and refresh context
+```
+
+Regenerate context after each sync to keep Claude's view of your knowledge base current:
+
+```bash
+mneia context generate-claude
+```
+
 ## MCP Server
 
 mneia exposes an MCP server for AI tool integration. Add it to your Claude Code config:

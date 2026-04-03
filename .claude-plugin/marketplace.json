@@ -1,0 +1,17 @@
+{
+  "name": "mneia",
+  "owner": {
+    "name": "Dimitris Sotiriou",
+    "url": "https://github.com/riverphoenix"
+  },
+  "description": "Autonomous multi-agent personal knowledge system. Connects to your apps, builds persistent local memory, and powers Claude Code with deep personal context.",
+  "homepage": "https://github.com/riverphoenix/mneia",
+  "plugins": [
+    {
+      "name": "mneia-plugin",
+      "source": "./plugins/mneia-plugin",
+      "description": "Claude Code skill for querying your mneia knowledge base — ask questions about your notes, meetings, email, code, and more directly from Claude Code.",
+      "tags": ["knowledge", "memory", "rag", "personal", "ai", "obsidian", "calendar", "gmail", "github"]
+    }
+  ]
+}

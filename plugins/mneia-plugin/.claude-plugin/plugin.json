@@ -1,0 +1,15 @@
+{
+  "name": "mneia-plugin",
+  "version": "0.3.2",
+  "description": "Claude Code skill for querying your mneia knowledge base — ask questions about your notes, meetings, email, code, and more directly from Claude Code.",
+  "author": "Dimitris Sotiriou",
+  "homepage": "https://github.com/riverphoenix/mneia",
+  "license": "MIT",
+  "skills": [
+    {
+      "name": "mneia",
+      "path": "./skills/mneia",
+      "description": "Query your personal knowledge base via mneia: notes, calendar, email, GitHub, meetings, and more."
+    }
+  ]
+}

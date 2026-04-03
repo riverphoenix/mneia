@@ -2,7 +2,7 @@
 
 All notable changes to mneia are documented here.
 
-## [0.3.2] — 2026-04-03
+## [0.3.3] — 2026-04-03
 
 ### Added
 
